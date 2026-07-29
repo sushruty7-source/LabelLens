@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>LabelLens — Barcode Ingredient Scanner</title>
+
+<!-- Mobile / "Add to Home Screen" support -->
+<meta name="theme-color" content="#0d1512">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LabelLens">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon-32.png" sizes="32x32">
+<link rel="icon" href="./icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="./icon-180.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root{
+    --ink: #0d1512;
+    --panel: #131e19;
+    --panel-2: #182720;
+    --line: #24362d;
+    --text: #e9f1ec;
+    --text-dim: #93a89c;
+    --laser: #ff3b30;
+    --amber: #f5a623;
+    --green: #3ecf8e;
+    --red: #ff5a4e;
+    --gray: #6b7d73;
+    --mono: 'IBM Plex Mono', monospace;
+    --display: 'Space Grotesk', sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html{ -webkit-text-size-adjust: 100%; }
+  body{
+    margin:0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--display);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(60px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
+    min-height:100vh;
+    min-height: 100dvh;
+    touch-action: manipulation;
+    overscroll-behavior-y: contain;
+  }
+  .wrap{max-width:520px; margin:0 auto; padding:0 18px;}
+
+  /* HEADER */
+  header{
+    padding: 28px 18px 20px;
+    border-bottom: 1px solid var(--line);
+    display:flex; align-items:center; gap:12px;
+  }
+  .logo-mark{
+    width:34px; height:34px; flex-shrink:0; position:relative;
+  }
+  .logo-mark svg{width:100%;height:100%;display:block;}
+  h1{
+    font-size: 20px; margin:0; letter-spacing:-0.02em; font-weight:700;
+  }
+  header p{margin:2px 0 0; font-family:var(--mono); font-size:11px; color:var(--text-dim); letter-spacing:0.04em;}
+
+  /* SCANNER */
+  .scanner-card{
+    margin:20px 18px 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow:hidden;
+  }
+  .viewport{
+    position:relative;
+    aspect-ratio: 4/3;
+    background: #060a08;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  #reader{width:100%; height:100%;}
+  #reader video{object-fit:cover; width:100%!important; height:100%!important;}
+  .viewport-idle{
+    text-align:center; color:var(--text-dim); font-family:var(--mono); font-size:12px;
+    padding:20px; line-height:1.6;
+  }
+  .laser-line{
+    position:absolute; left:6%; right:6%; height:2px;
+    background: linear-gradient(90deg, transparent, var(--laser), transparent);
+    box-shadow: 0 0 8px 1px var(--laser);
+    top:50%;
+    animation: sweep 2.2s ease-in-out infinite;
+    display:none;
+    pointer-events:none;
+  }
+  .scanning .laser-line{display:block;}
+  .scanning .viewport-idle{display:none;}
+  @keyframes sweep{
+    0%,100%{ top:18%; }
+    50%{ top:82%; }
+  }
+  .corner{
+    position:absolute; width:22px; height:22px; border-color: var(--green);
+    opacity:.85; pointer-events:none;
+  }
+  .corner.tl{top:14px;left:14px;border-top:2px solid;border-left:2px solid;border-radius:4px 0 0 0;}
+  .corner.tr{top:14px;right:14px;border-top:2px solid;border-right:2px solid;border-radius:0 4px 0 0;}
+  .corner.bl{bottom:14px;left:14px;border-bottom:2px solid;border-left:2px solid;border-radius:0 0 0 4px;}
+  .corner.br{bottom:14px;right:14px;border-bottom:2px solid;border-right:2px solid;border-radius:0 0 4px 0;}
+
+  .scanner-controls{
+    padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
+  }
+  button{
+    font-family: var(--display); font-weight:600; font-size:14px;
+    border-radius:8px; border:1px solid var(--line); cursor:pointer;
+    padding:12px 14px; min-height:44px; transition: all .15s ease; letter-spacing:0.01em;
+    -webkit-appearance:none; appearance:none;
+  }
+  .btn-primary{
+    background: var(--green); color:#062015; border-color:var(--green); flex:1;
+  }
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-primary:disabled{opacity:.5; cursor:default;}
+  .btn-ghost{
+    background:transparent; color:var(--text); flex:1;
+  }
+  .btn-ghost:hover{background:var(--panel-2);}
+
+  /* MANUAL ENTRY */
+  .manual{
+    margin:14px 18px 0; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:14px 16px;
+  }
+  .manual label{
+    font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--text-dim); display:block; margin-bottom:8px;
+  }
+  .manual-row{display:flex; gap:8px;}
+  .manual-row input{
+    flex:1; background:#0a1310; border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:16px; letter-spacing:0.05em; border-radius:8px;
+    padding:12px 12px; min-height:44px; outline:none; -webkit-appearance:none; appearance:none;
+  }
+  .manual-row input:focus{border-color:var(--green);}
+  .manual-row button{white-space:nowrap;}
+
+  .samples{margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;}
+  .sample-chip{
+    font-family:var(--mono); font-size:11px; background:var(--panel-2); color:var(--text-dim);
+    border:1px solid var(--line); border-radius:20px; padding:5px 10px; cursor:pointer;
+  }
+  .sample-chip:hover{color:var(--text); border-color:var(--gray);}
+
+  /* PHOTO SCAN */
+  .divider{
+    display:flex; align-items:center; gap:10px; margin:18px 18px 0;
+    font-family:var(--mono); font-size:10px; color:var(--gray); letter-spacing:0.1em;
+  }
+  .divider::before, .divider::after{content:''; flex:1; height:1px; background:var(--line);}
+  .photo-card{
+    margin:14px 18px 0; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:14px 16px;
+  }
+  .photo-card label{
+    font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--text-dim); display:block; margin-bottom:8px;
+  }
+  .photo-hint{font-family:var(--mono); font-size:11px; color:var(--text-dim); line-height:1.6; margin:0 0 12px;}
+  .photo-drop{
+    border:1.5px dashed var(--line); border-radius:10px; padding:22px 14px; text-align:center;
+    cursor:pointer; transition: border-color .15s ease;
+  }
+  .photo-drop:hover{border-color:var(--green);}
+  .photo-drop svg{width:26px; height:26px; color:var(--text-dim); margin-bottom:8px;}
+  .photo-drop-text{font-family:var(--mono); font-size:12px; color:var(--text-dim);}
+  .photo-drop-text b{color:var(--text); font-weight:600;}
+  #photoInput{display:none;}
+  .photo-preview-wrap{display:none; margin-top:12px;}
+  .photo-preview-wrap.show{display:block;}
+  .photo-preview-wrap img{
+    width:100%; max-height:220px; object-fit:contain; border-radius:10px;
+    background:#060a08; border:1px solid var(--line);
+  }
+  .photo-actions{display:flex; gap:8px; margin-top:10px;}
+  .ocr-progress{
+    display:none; margin-top:12px;
+  }
+  .ocr-progress.show{display:block;}
+  .ocr-progress-label{
+    font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:6px;
+    display:flex; justify-content:space-between;
+  }
+  .ocr-progress-track{height:6px; background:var(--panel-2); border-radius:4px; overflow:hidden;}
+  .ocr-progress-fill{height:100%; width:0%; background:var(--green); transition: width .2s ease;}
+  .ocr-extracted{
+    margin-top:12px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--line);
+    border-radius:8px; font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    line-height:1.6; max-height:100px; overflow-y:auto; display:none;
+  }
+  .ocr-extracted.show{display:block;}
+
+  /* STATUS */
+  .status{
+    margin:14px 18px 0; font-family:var(--mono); font-size:12px; color:var(--text-dim);
+    display:none; align-items:center; gap:8px;
+  }
+  .status.show{display:flex;}
+  .dot{width:6px;height:6px;border-radius:50%; background:var(--amber); animation:pulse 1s infinite;}
+  @keyframes pulse{50%{opacity:.3;}}
+  .status.error .dot{background:var(--red); animation:none;}
+  .status.error{color:var(--red);}
+
+  /* PRODUCT CARD */
+  .product{
+    margin:18px 18px 0; display:none;
+  }
+  .product.show{display:block;}
+  .product-head{
+    display:flex; gap:14px; align-items:center; padding:16px;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px 14px 0 0;
+    border-bottom:none;
+  }
+  .product-head img{
+    width:56px; height:56px; object-fit:contain; border-radius:8px; background:#fff;
+    flex-shrink:0;
+  }
+  .product-head .ph-fallback{
+    width:56px;height:56px;border-radius:8px;background:var(--panel-2);
+    display:flex;align-items:center;justify-content:center;font-family:var(--mono);
+    font-size:10px;color:var(--text-dim);text-align:center;flex-shrink:0;
+  }
+  .product-name{font-weight:700; font-size:16px; line-height:1.3;}
+  .product-brand{font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:3px;}
+
+  .risk-summary{
+    display:flex; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    background:var(--panel);
+  }
+  .risk-summary div{
+    flex:1; text-align:center; padding:12px 6px; border-right:1px solid var(--line);
+  }
+  .risk-summary div:last-child{border-right:none;}
+  .risk-summary .num{font-family:var(--mono); font-size:18px; font-weight:600; display:block;}
+  .risk-summary .lbl{font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-dim); display:block; margin-top:2px;}
+
+  .ingredient-list{
+    background: var(--panel); border:1px solid var(--line); border-top:none;
+    border-radius:0 0 14px 14px; padding:6px 0 4px;
+  }
+  .ing-row{
+    display:flex; align-items:flex-start; gap:10px; padding:10px 16px;
+    border-bottom:1px solid var(--line);
+  }
+  .ing-row:last-child{border-bottom:none;}
+  .ing-badge{
+    flex-shrink:0; width:44px; text-align:center; font-family:var(--mono); font-size:10px;
+    font-weight:600; padding:3px 4px; border-radius:5px; letter-spacing:0.02em; margin-top:1px;
+  }
+  .ing-name{font-size:13.5px; line-height:1.4;}
+  .ing-note{font-family:var(--mono); font-size:10.5px; color:var(--text-dim); margin-top:2px; line-height:1.4;}
+
+  .g1{background:rgba(255,90,78,.16); color:var(--red);}
+  .g2a{background:rgba(255,90,78,.10); color:#ff8f7f;}
+  .g2b{background:rgba(245,166,35,.15); color:var(--amber);}
+  .g3{background:rgba(107,125,115,.18); color:var(--text-dim);}
+  .gne{background:rgba(107,140,180,.15); color:#8fb3d9;}
+  .gclear{background:rgba(62,207,142,.16); color:var(--green);}
+  .gnone{background:rgba(62,207,142,.1); color:var(--green);}
+
+  .legend{
+    margin:16px 18px 0; padding:14px 16px; background:var(--panel-2);
+    border:1px solid var(--line); border-radius:12px;
+    font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.9;
+  }
+  .legend b{color:var(--text); font-weight:600;}
+  .legend-row{display:flex; align-items:center; gap:8px;}
+  .legend-swatch{width:8px;height:8px;border-radius:2px; flex-shrink:0;}
+
+  .disclaimer{
+    margin:14px 18px 0; font-family:var(--mono); font-size:10px; color:var(--gray);
+    line-height:1.6; padding:0 2px;
+  }
+
+  footer{
+    margin-top:30px; padding:16px 18px 0; text-align:center;
+    font-family:var(--mono); font-size:10px; color:var(--gray);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo-mark">
+      <svg viewBox="0 0 34 34" fill="none">
+        <rect x="1" y="6" width="3" height="22" fill="#3ecf8e"/>
+        <rect x="6" y="6" width="1.5" height="22" fill="#3ecf8e"/>
+        <rect x="9.5" y="6" width="3" height="22" fill="#3ecf8e"/>
+        <rect x="14.5" y="6" width="1.5" height="22" fill="#e9f1ec"/>
+        <rect x="18" y="6" width="4" height="22" fill="#e9f1ec"/>
+        <rect x="24" y="6" width="1.5" height="22" fill="#3ecf8e"/>
+        <rect x="27.5" y="6" width="3" height="22" fill="#3ecf8e"/>
+      </svg>
+    </div>
+    <div>
+      <h1>LabelLens</h1>
+      <p>BARCODE → INGREDIENTS → IARC RISK CLASS</p>
+    </div>
+  </header>
+
+  <div class="scanner-card" id="scannerCard">
+    <div class="viewport" id="viewport">
+      <div id="reader"></div>
+      <div class="viewport-idle" id="viewportIdle">
+        CAMERA OFF<br>tap "Start camera scan" — or enter a barcode manually below
+      </div>
+      <div class="laser-line"></div>
+      <div class="corner tl"></div><div class="corner tr"></div>
+      <div class="corner bl"></div><div class="corner br"></div>
+    </div>
+    <div class="scanner-controls">
+      <button class="btn-primary" id="startScanBtn">Start camera scan</button>
+      <button class="btn-ghost" id="stopScanBtn" style="display:none;">Stop</button>
+    </div>
+  </div>
+
+  <div class="manual">
+    <label>Or enter barcode (UPC / EAN) manually</label>
+    <div class="manual-row">
+      <input type="text" inputmode="numeric" id="barcodeInput" placeholder="e.g. 0016000275287">
+      <button class="btn-primary" id="lookupBtn">Look up</button>
+    </div>
+    <div class="samples">
+      <span class="sample-chip" data-code="0016000275287">Cheerios</span>
+      <span class="sample-chip" data-code="0028400589166">Doritos</span>
+      <span class="sample-chip" data-code="0049000028911">Diet Coke</span>
+      <span class="sample-chip" data-code="0071720006604">Spam</span>
+    </div>
+  </div>
+
+  <div class="divider">OR</div>
+
+  <div class="photo-card">
+    <label>Photo of the ingredient label</label>
+    <p class="photo-hint">Snap or upload a clear photo of the ingredients list — good for products with no barcode match, or to double-check what OFF has on file.</p>
+    <div class="photo-drop" id="photoDrop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="margin:0 auto;display:block;"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 6l1.5-2.5h5L16 6"/><circle cx="12" cy="13" r="3.5"/></svg>
+      <div class="photo-drop-text"><b>Tap to take a photo</b> or choose a file</div>
+    </div>
+    <input type="file" id="photoInput" accept="image/*" capture="environment">
+    <div class="photo-preview-wrap" id="photoPreviewWrap">
+      <img id="photoPreview">
+      <div class="photo-actions">
+        <button class="btn-primary" id="extractBtn">Extract ingredients</button>
+        <button class="btn-ghost" id="retakeBtn">Retake</button>
+      </div>
+      <div class="ocr-progress" id="ocrProgress">
+        <div class="ocr-progress-label"><span id="ocrStage">Reading image…</span><span id="ocrPct">0%</span></div>
+        <div class="ocr-progress-track"><div class="ocr-progress-fill" id="ocrFill"></div></div>
+      </div>
+      <div class="ocr-extracted" id="ocrExtracted"></div>
+    </div>
+  </div>
+
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Looking up product…</span></div>
+
+  <div class="product" id="product">
+    <div class="product-head">
+      <img id="prodImg" style="display:none;">
+      <div class="ph-fallback" id="prodImgFallback">NO<br>IMAGE</div>
+      <div>
+        <div class="product-name" id="prodName">—</div>
+        <div class="product-brand" id="prodBrand">—</div>
+      </div>
+    </div>
+    <div class="risk-summary" id="riskSummary"></div>
+    <div class="ingredient-list" id="ingredientList"></div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--red)"></span><b>Group 1</b> — carcinogenic to humans (IARC)</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:#ff8f7f"></span><b>Group 2A</b> — probably carcinogenic</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--amber)"></span><b>Group 2B</b> — possibly carcinogenic</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--gray)"></span><b>Group 3</b> — IARC reviewed it, evidence insufficient either way</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:#8fb3d9"></span><b>N/A</b> — IARC has not evaluated this substance at all</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--green)"></span><b>OK</b> — specifically studied and cleared by regulators</div>
+    <div class="legend-row" style="opacity:.7"><span class="legend-swatch" style="background:rgba(62,207,142,.4)"></span>No badge shown — ingredient isn't on this prototype's reference list yet</div>
+  </div>
+
+  <div class="disclaimer">
+    Classifications reflect IARC Monograph hazard groups, which describe strength of evidence that a substance <i>can</i> cause cancer under some condition of exposure — not the risk at the dose actually found in this product, and not a prediction about any individual. "N/A" is not the same as "safe": it just means no hazard evaluation exists yet, which is common for many additives. This prototype's reference table lives in <code>carcinogen-table.json</code> (~30 substances) — a curated demo subset, not the full IARC/Prop 65 database. Several entries note packaging or processing sources rather than added ingredients. Not medical or safety advice.
+  </div>
+
+  <footer>
+    DATA: Open Food Facts API · IARC Monographs (WHO) · prototype build<br>
+    <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span>
+  </footer>
+</div>
+
+<script>
+// ---------- Reference table now lives in carcinogen-table.json ----------
+// Loaded async below so the table can be edited/expanded without touching this file.
+// Falls back to a tiny embedded subset only if the fetch is blocked (e.g. opening this
+// HTML file directly via file:// instead of a server, where local JSON fetches are
+// blocked by the browser's CORS rules).
+let CARCINOGEN_TABLE = [];
+let tableReady = false;
+
+const FALLBACK_TABLE = [
+  { match: ["sodium nitrite", "e250"], name: "Nitrite curing salts", group: "2A", note: "IARC 2A. (Fallback entry — full table failed to load; see carcinogen-table.json.)" },
+  { match: ["aspartame", "e951"], name: "Aspartame", group: "2B", note: "IARC 2B. (Fallback entry — full table failed to load; see carcinogen-table.json.)" },
+  { match: ["processed meat", "bacon"], name: "Processed meat", group: "1", note: "IARC Group 1. (Fallback entry — full table failed to load; see carcinogen-table.json.)" },
+];
+
+async function loadReferenceTable(){
+  try{
+    const res = await fetch('./carcinogen-table.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    CARCINOGEN_TABLE = data.entries;
+    tableReady = true;
+  }catch(err){
+    CARCINOGEN_TABLE = FALLBACK_TABLE;
+    tableReady = true;
+    console.warn('Could not load carcinogen-table.json (likely opened via file:// — serve over http instead). Using small fallback table.', err);
+  }
+}
+loadReferenceTable();
+
+function classify(ingredientName){
+  const n = ingredientName.toLowerCase();
+  for (const entry of CARCINOGEN_TABLE){
+    if (entry.match.some(m => n.includes(m))) return entry;
+  }
+  return null;
+}
+
+const groupRank = { "1": 0, "2A": 1, "2B": 2, "3": 3, "NE": 4, "CLEAR": 5 };
+const groupLabel = { "1":"1", "2A":"2A", "2B":"2B", "3":"3", "NE":"N/A", "CLEAR":"OK" };
+function badgeClass(group){
+  return { "1":"g1", "2A":"g2a", "2B":"g2b", "3":"g3", "NE":"gne", "CLEAR":"gclear" }[group] || "gnone";
+}
+
+// ---------- UI wiring ----------
+const statusEl = document.getElementById('status');
+const statusText = document.getElementById('statusText');
+const productEl = document.getElementById('product');
+const scannerCard = document.getElementById('scannerCard');
+
+function setStatus(msg, isError){
+  statusEl.classList.add('show');
+  statusEl.classList.toggle('error', !!isError);
+  statusText.textContent = msg;
+}
+function clearStatus(){ statusEl.classList.remove('show'); }
+
+async function lookupBarcode(code){
+  code = code.trim();
+  if (!code){ setStatus('Enter a barcode first.', true); return; }
+  productEl.classList.remove('show');
+  setStatus('Looking up ' + code + ' via Open Food Facts…');
+  try{
+    const [res] = await Promise.all([
+      fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`),
+      tableReady ? Promise.resolve() : loadReferenceTable()
+    ]);
+    const data = await res.json();
+    if (data.status !== 1 || !data.product){
+      setStatus('No product found for that barcode in Open Food Facts.', true);
+      return;
+    }
+    renderProduct(data.product, code);
+    clearStatus();
+  }catch(err){
+    setStatus('Lookup failed — network issue. ' + err.message, true);
+  }
+}
+
+function renderProduct(p, code){
+  const imgUrl = p.image_front_small_url || p.image_url || null;
+  let ingredients = [];
+  if (Array.isArray(p.ingredients) && p.ingredients.length){
+    ingredients = p.ingredients.map(i => i.text || i.id || '').filter(Boolean);
+  } else if (p.ingredients_text){
+    ingredients = splitIngredientText(p.ingredients_text);
+  }
+  renderIngredientsBlock({
+    name: p.product_name || '(unnamed product)',
+    brand: (p.brands || '—') + ' · ' + code,
+    imgUrl,
+    ingredients,
+    emptyMessage: 'No ingredient data available for this product in Open Food Facts.'
+  });
+}
+
+function splitIngredientText(text){
+  return text.split(/,|\(|\)|\n|;/).map(s => s.trim()).filter(s => s.length > 1);
+}
+
+// Shared renderer used by both the barcode (Open Food Facts) flow and the photo-OCR flow.
+function renderIngredientsBlock({ name, brand, imgUrl, ingredients, emptyMessage }){
+  document.getElementById('prodName').textContent = name;
+  document.getElementById('prodBrand').textContent = brand;
+
+  const img = document.getElementById('prodImg');
+  const fallback = document.getElementById('prodImgFallback');
+  if (imgUrl){
+    img.src = imgUrl;
+    img.style.display = 'block';
+    fallback.style.display = 'none';
+  } else {
+    img.style.display = 'none';
+    fallback.style.display = 'flex';
+  }
+
+  if (!ingredients.length){
+    document.getElementById('ingredientList').innerHTML =
+      `<div class="ing-row"><div class="ing-name">${escapeHtml(emptyMessage)}</div></div>`;
+    document.getElementById('riskSummary').innerHTML = '';
+    productEl.classList.add('show');
+    return;
+  }
+
+  const classified = ingredients.map(ing => ({ ing, hit: classify(ing) }));
+  classified.sort((a,b) => {
+    const ra = a.hit ? groupRank[a.hit.group] : 9;
+    const rb = b.hit ? groupRank[b.hit.group] : 9;
+    return ra - rb;
+  });
+
+  const counts = { "1":0, "2A":0, "2B":0, "3":0 };
+  classified.forEach(c => { if (c.hit) counts[c.hit.group]++; });
+
+  document.getElementById('riskSummary').innerHTML = `
+    <div><span class="num" style="color:var(--red)">${counts["1"]}</span><span class="lbl">Group 1</span></div>
+    <div><span class="num" style="color:#ff8f7f">${counts["2A"]}</span><span class="lbl">Group 2A</span></div>
+    <div><span class="num" style="color:var(--amber)">${counts["2B"]}</span><span class="lbl">Group 2B</span></div>
+    <div><span class="num" style="color:var(--gray)">${counts["3"]}</span><span class="lbl">Group 3</span></div>
+  `;
+
+  document.getElementById('ingredientList').innerHTML = classified.map(c => {
+    const label = c.hit ? groupLabel[c.hit.group] : '—';
+    const cls = c.hit ? badgeClass(c.hit.group) : 'gnone';
+    const note = c.hit ? c.hit.note : 'Not on reference list checked in this prototype.';
+    return `<div class="ing-row">
+      <div class="ing-badge ${cls}">${label}</div>
+      <div>
+        <div class="ing-name">${escapeHtml(c.ing)}</div>
+        <div class="ing-note">${escapeHtml(note)}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  productEl.classList.add('show');
+}
+
+function escapeHtml(str){
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+document.getElementById('lookupBtn').addEventListener('click', () => {
+  lookupBarcode(document.getElementById('barcodeInput').value);
+});
+document.getElementById('barcodeInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') lookupBarcode(e.target.value);
+});
+document.querySelectorAll('.sample-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.getElementById('barcodeInput').value = chip.dataset.code;
+    lookupBarcode(chip.dataset.code);
+  });
+});
+
+// ---------- Camera scanning (graceful fallback if blocked) ----------
+let html5QrCode = null;
+const startBtn = document.getElementById('startScanBtn');
+const stopBtn = document.getElementById('stopScanBtn');
+const viewportIdle = document.getElementById('viewportIdle');
+
+startBtn.addEventListener('click', async () => {
+  try{
+    html5QrCode = new Html5Qrcode("reader");
+    scannerCard.classList.add('scanning');
+    await html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 240, height: 140 } },
+      (decodedText) => {
+        document.getElementById('barcodeInput').value = decodedText;
+        lookupBarcode(decodedText);
+        stopScan();
+      },
+      () => { /* per-frame decode errors, ignore */ }
+    );
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'block';
+  }catch(err){
+    scannerCard.classList.remove('scanning');
+    viewportIdle.innerHTML = 'CAMERA BLOCKED HERE<br>if you\'re viewing this inside a preview/embedded window, open the page directly in your phone\'s browser (Safari/Chrome) — or use the photo-upload option below, which uses your phone\'s native camera app instead.';
+    setStatus('Live camera scan unavailable in this view — try the photo option below, or open this page directly in your browser.', true);
+  }
+});
+
+stopBtn.addEventListener('click', stopScan);
+
+function stopScan(){
+  if (html5QrCode){
+    html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+  }
+  scannerCard.classList.remove('scanning');
+  startBtn.style.display = 'block';
+  stopBtn.style.display = 'none';
+}
+
+// ---------- Photo-of-label OCR flow ----------
+const photoDrop = document.getElementById('photoDrop');
+const photoInput = document.getElementById('photoInput');
+const photoPreviewWrap = document.getElementById('photoPreviewWrap');
+const photoPreview = document.getElementById('photoPreview');
+const extractBtn = document.getElementById('extractBtn');
+const retakeBtn = document.getElementById('retakeBtn');
+const ocrProgress = document.getElementById('ocrProgress');
+const ocrStage = document.getElementById('ocrStage');
+const ocrPct = document.getElementById('ocrPct');
+const ocrFill = document.getElementById('ocrFill');
+const ocrExtracted = document.getElementById('ocrExtracted');
+
+let selectedImageDataUrl = null;
+
+photoDrop.addEventListener('click', () => photoInput.click());
+
+photoInput.addEventListener('change', async () => {
+  const file = photoInput.files && photoInput.files[0];
+  if (!file) return;
+  photoDrop.querySelector('.photo-drop-text').innerHTML = '<b>Processing photo…</b>';
+  try {
+    selectedImageDataUrl = await resizeImageFile(file, 1600, 0.85);
+    photoPreview.src = selectedImageDataUrl;
+    photoPreviewWrap.classList.add('show');
+    ocrProgress.classList.remove('show');
+    ocrExtracted.classList.remove('show');
+    productEl.classList.remove('show');
+    clearStatus();
+  } catch(err){
+    setStatus('Could not read that image: ' + err.message, true);
+  } finally {
+    photoDrop.querySelector('.photo-drop-text').innerHTML = '<b>Tap to take a photo</b> or choose a file';
+  }
+});
+
+// Phone camera photos can be 3–12MB at 12+ megapixels — full size would make OCR slow
+// and can crash lower-end phones. Downscale to a reasonable max dimension first, and
+// use createImageBitmap's imageOrientation option so photos taken in portrait aren't
+// rotated sideways (a common issue when drawing EXIF-rotated photos to a plain canvas).
+async function resizeImageFile(file, maxDim, quality){
+  let source, sw, sh;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    source = bitmap; sw = bitmap.width; sh = bitmap.height;
+  } catch (e) {
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('unsupported image format'));
+      img.src = URL.createObjectURL(file);
+    });
+    sw = source.naturalWidth; sh = source.naturalHeight;
+  }
+  const scale = Math.min(1, maxDim / Math.max(sw, sh));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(sw * scale));
+  canvas.height = Math.max(1, Math.round(sh * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+retakeBtn.addEventListener('click', () => {
+  photoInput.value = '';
+  selectedImageDataUrl = null;
+  photoPreviewWrap.classList.remove('show');
+  ocrProgress.classList.remove('show');
+  ocrExtracted.classList.remove('show');
+});
+
+extractBtn.addEventListener('click', async () => {
+  if (!selectedImageDataUrl){ setStatus('Select a photo first.', true); return; }
+  if (typeof Tesseract === 'undefined'){
+    setStatus('OCR library failed to load — check your connection and reload.', true);
+    return;
+  }
+  extractBtn.disabled = true;
+  ocrProgress.classList.add('show');
+  ocrExtracted.classList.remove('show');
+  ocrStage.textContent = 'Starting OCR…';
+  ocrFill.style.width = '0%';
+  ocrPct.textContent = '0%';
+
+  try{
+    const result = await Tesseract.recognize(selectedImageDataUrl, 'eng', {
+      logger: (m) => {
+        if (m.status){
+          ocrStage.textContent = m.status.replace(/_/g, ' ');
+        }
+        if (typeof m.progress === 'number'){
+          const pct = Math.round(m.progress * 100);
+          ocrFill.style.width = pct + '%';
+          ocrPct.textContent = pct + '%';
+        }
+      }
+    });
+
+    const rawText = result.data.text || '';
+    ocrExtracted.textContent = rawText.trim() || '(no text detected)';
+    ocrExtracted.classList.add('show');
+
+    const ingredients = extractIngredientsFromOCR(rawText);
+
+    renderIngredientsBlock({
+      name: 'Scanned label',
+      brand: 'via photo OCR',
+      imgUrl: selectedImageDataUrl,
+      ingredients,
+      emptyMessage: "Couldn't confidently parse an ingredient list from this photo. Try a closer, well-lit, flat shot of just the ingredients text."
+    });
+
+  }catch(err){
+    setStatus('OCR failed: ' + err.message, true);
+  }finally{
+    extractBtn.disabled = false;
+  }
+});
+
+// Try to isolate the "Ingredients: ..." section if present, otherwise use the
+// whole extracted text — OCR on packaging is noisy, so this is intentionally lenient.
+function extractIngredientsFromOCR(rawText){
+  const cleaned = rawText.replace(/\r/g, ' ').replace(/[|_]/g, '').trim();
+  const match = cleaned.match(/ingredients?\s*[:\-]?\s*([\s\S]+)/i);
+  let body = match ? match[1] : cleaned;
+  // Cut off at a likely end marker (allergen/nutrition sections) if present
+  const stopMatch = body.match(/\b(contains|allergen|nutrition|manufactured|distributed|best before|net wt)\b/i);
+  if (stopMatch) body = body.slice(0, stopMatch.index);
+  return splitIngredientText(body).filter(s => /[a-z]/i.test(s));
+}
+
+</script>
+</body>
+</html>

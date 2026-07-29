@@ -1,0 +1,59 @@
+{
+  "version": "0.1.0",
+  "last_updated": "2026-07-23",
+  "source_note": "Group values follow IARC Monograph hazard classifications (monographs.iarc.who.int/list-of-classifications), cross-checked against FDA/EU regulatory actions and California Prop 65 where noted. 'NE' means IARC has not evaluated the substance at all — distinct from Group 3, which means IARC evaluated it and found the evidence insufficient to classify either way. 'CLEAR' means the substance has been specifically studied and cleared by regulators, shown so the app isn't only ever flagging things.",
+  "groups": {
+    "1": "Carcinogenic to humans",
+    "2A": "Probably carcinogenic to humans",
+    "2B": "Possibly carcinogenic to humans",
+    "3": "Evaluated by IARC — evidence insufficient to classify",
+    "NE": "Not evaluated by IARC at all",
+    "CLEAR": "Specifically studied and cleared by regulators"
+  },
+  "entries": [
+    { "id": "red3", "category": "Food colors", "match": ["red 3", "red dye 3", "red no. 3", "erythrosine", "e127"], "name": "Red 3 (Erythrosine)", "group": "NE", "note": "Not IARC-classified. FDA banned it from US food/drugs in Jan 2025 under the Delaney Clause after it caused thyroid tumors in male rats; phase-out runs through Jan 2027. Was already banned in cosmetics since 1990." },
+    { "id": "titanium_dioxide", "category": "Food colors", "match": ["titanium dioxide", "e171"], "name": "Titanium dioxide", "group": "2B", "note": "IARC 2B, based on inhalation studies (occupational exposure, e.g. factory dust) rather than ingestion. Banned as a food additive in the EU since 2022; still permitted in the US." },
+    { "id": "caramel_color", "category": "Food colors", "match": ["caramel color", "caramel colour", "e150c", "e150d", "caramel coloring"], "name": "Caramel color (Class III/IV)", "group": "NE", "note": "Not IARC-classified as a whole. The ammonia-process versions (Class III/IV, common in colas and dark sauces) contain 4-MEI, which is California Prop 65 listed based on animal studies." },
+    { "id": "red40", "category": "Food colors", "match": ["red 40", "red no. 40", "allura red", "e129"], "name": "Red 40 (Allura Red)", "group": "3", "note": "IARC evaluated, insufficient evidence to classify as carcinogenic. Separately monitored for behavioral effects in children." },
+    { "id": "yellow5", "category": "Food colors", "match": ["yellow 5", "tartrazine", "e102"], "name": "Yellow 5 (Tartrazine)", "group": "NE", "note": "Not IARC-classified as a carcinogen. Known allergen/behavioral trigger for some children, tracked separately from cancer risk." },
+    { "id": "yellow6", "category": "Food colors", "match": ["yellow 6", "sunset yellow", "e110"], "name": "Yellow 6 (Sunset Yellow)", "group": "NE", "note": "Not IARC-classified as a carcinogen. On some watchlists for benzidine contamination in older manufacturing processes." },
+    { "id": "blue1", "category": "Food colors", "match": ["blue 1", "brilliant blue", "e133"], "name": "Blue 1 (Brilliant Blue)", "group": "NE", "note": "Not IARC-classified." },
+    { "id": "blue2", "category": "Food colors", "match": ["blue 2", "indigotine", "indigo carmine", "e132"], "name": "Blue 2 (Indigotine)", "group": "NE", "note": "Not IARC-classified; some rodent studies at very high doses flagged by advocacy groups, not confirmed by regulators." },
+
+    { "id": "nitrite_nitrate", "category": "Preservatives", "match": ["sodium nitrite", "e250", "sodium nitrate", "e251", "potassium nitrite", "e249", "potassium nitrate", "e252"], "name": "Nitrite / nitrate curing salts", "group": "2A", "note": "IARC 2A for ingested nitrite/nitrate under conditions that lead to nitrosamine formation in the body. Common in cured and processed meats." },
+    { "id": "potassium_bromate", "category": "Preservatives", "match": ["potassium bromate", "e924"], "name": "Potassium bromate", "group": "2B", "note": "Banned as a food additive in the EU, UK, Canada, and China. Still permitted in limited US uses, mainly some breads." },
+    { "id": "bha", "category": "Preservatives", "match": ["bha", "butylated hydroxyanisole", "e320"], "name": "BHA", "group": "2B", "note": "California Prop 65 listed. Used as an antioxidant preservative in oils, cereals, and packaging." },
+    { "id": "bht", "category": "Preservatives", "match": ["bht", "butylated hydroxytoluene", "e321"], "name": "BHT", "group": "3", "note": "IARC evaluated, insufficient evidence to classify. Still restricted in some countries." },
+    { "id": "sodium_benzoate", "category": "Preservatives", "match": ["sodium benzoate", "e211", "potassium benzoate", "e212"], "name": "Sodium/potassium benzoate", "group": "NE", "note": "Not carcinogen-classified. Separate concern: can form trace benzene when combined with vitamin C (ascorbic acid) plus heat or light." },
+    { "id": "propyl_gallate", "category": "Preservatives", "match": ["propyl gallate", "e310"], "name": "Propyl gallate", "group": "NE", "note": "Limited long-term data; not formally IARC-classified." },
+
+    { "id": "aspartame", "category": "Sweeteners", "match": ["aspartame", "e951"], "name": "Aspartame", "group": "2B", "note": "IARC classified 2B in 2023. WHO/FAO's food safety committee (JECFA) reviewed the same evidence and kept existing daily intake limits unchanged." },
+    { "id": "saccharin", "category": "Sweeteners", "match": ["saccharin", "e954"], "name": "Saccharin", "group": "3", "note": "Downgraded from 2B after the rat-bladder-tumor mechanism was found not to apply to humans." },
+    { "id": "sucralose", "category": "Sweeteners", "match": ["sucralose", "e955"], "name": "Sucralose", "group": "NE", "note": "Not IARC-classified. A 2023 rodent study raised genotoxicity questions; FDA and EFSA maintain current approval pending further review." },
+    { "id": "acesulfame_k", "category": "Sweeteners", "match": ["acesulfame potassium", "acesulfame k", "e950"], "name": "Acesulfame potassium", "group": "NE", "note": "Not IARC-classified; long-term human data is limited." },
+
+    { "id": "acrylamide", "category": "Cooking byproducts", "match": ["acrylamide"], "name": "Acrylamide", "group": "2A", "note": "Forms during high-heat frying, baking, or roasting of starchy foods — chips, fries, coffee, toast, crackers. A processing byproduct, not an added ingredient." },
+    { "id": "benzo_a_pyrene", "category": "Cooking byproducts", "match": ["benzo[a]pyrene", "benzopyrene", "smoke flavoring", "smoke flavouring", "liquid smoke"], "name": "Benzo[a]pyrene / PAHs", "group": "1", "note": "Forms during smoking, grilling, or charring of meat, and can appear in liquid smoke flavoring. Benzo[a]pyrene itself is IARC Group 1." },
+
+    { "id": "processed_meat", "category": "Meat & alcohol", "match": ["processed meat", "bacon", "pepperoni", "salami", "hot dog", "deli meat", "cured meat", "prosciutto"], "name": "Processed meat", "group": "1", "note": "IARC Group 1 — sufficient evidence in humans (colorectal cancer) for meat transformed by salting, curing, fermenting, or smoking." },
+    { "id": "red_meat", "category": "Meat & alcohol", "match": ["beef", "pork", "red meat", "veal", "lamb"], "name": "Red meat", "group": "2A", "note": "IARC 2A, based on limited evidence in humans plus strong mechanistic/animal data. Unprocessed red meat, distinct from the Group 1 processed-meat finding." },
+    { "id": "alcohol", "category": "Meat & alcohol", "match": ["alcohol", "ethanol", "ethyl alcohol"], "name": "Alcohol (ethanol)", "group": "1", "note": "IARC Group 1 across multiple cancer types — breast, liver, colorectal, esophageal, oral." },
+    { "id": "acetaldehyde", "category": "Meat & alcohol", "match": ["acetaldehyde"], "name": "Acetaldehyde", "group": "1", "note": "IARC Group 1 in the context of alcohol metabolism; also occurs naturally in trace amounts in some foods/flavorings." },
+
+    { "id": "aflatoxin", "category": "Mycotoxins", "match": ["aflatoxin"], "name": "Aflatoxins", "group": "1", "note": "Mold toxin that can contaminate corn, peanuts, tree nuts, and grains if improperly stored. Regulated to low limits, but trace natural contamination can occur." },
+
+    { "id": "pfoa", "category": "Packaging contaminants", "match": ["pfoa", "perfluorooctanoic acid"], "name": "PFOA", "group": "1", "note": "IARC Group 1 (2023). Not a food ingredient — relevant as a contaminant from grease-resistant packaging like some fast-food wrappers and microwave popcorn bags." },
+    { "id": "pfos", "category": "Packaging contaminants", "match": ["pfos", "perfluorooctane sulfonate", "perfluorooctanesulfonic acid"], "name": "PFOS", "group": "2B", "note": "IARC Group 2B (2023). Same packaging-contaminant pathway as PFOA, not an intentional ingredient." },
+    { "id": "phthalates", "category": "Packaging contaminants", "match": ["dehp", "phthalate", "di(2-ethylhexyl) phthalate"], "name": "Phthalates (DEHP)", "group": "2B", "note": "Not a food ingredient — a plastic packaging component that can migrate into fatty foods." },
+    { "id": "dioxane", "category": "Packaging contaminants", "match": ["1,4-dioxane", "dioxane"], "name": "1,4-Dioxane", "group": "2B", "note": "Not intentionally added — a trace byproduct of ethoxylation in some personal-care surfactants (e.g. sodium laureth sulfate)." },
+    { "id": "bpa", "category": "Packaging contaminants", "match": ["bpa", "bisphenol a", "bisphenol-a"], "name": "BPA", "group": "NE", "note": "Not IARC-classified as a carcinogen. A packaging contaminant from some can linings and plastics; the main regulatory concern is endocrine disruption, a separate question from cancer risk." },
+
+    { "id": "formaldehyde", "category": "Personal care", "match": ["formaldehyde", "quaternium-15", "dmdm hydantoin", "imidazolidinyl urea", "diazolidinyl urea"], "name": "Formaldehyde / formaldehyde-releasers", "group": "1", "note": "Formaldehyde itself is IARC Group 1. Rarely listed directly — usually present via 'formaldehyde-releasing' preservatives in cosmetics and personal care." },
+    { "id": "talc", "category": "Personal care", "match": ["talc"], "name": "Talc", "group": "2B", "note": "IARC 2B. Risk historically linked to formulations containing asbestiform fibers; modern cosmetic-grade talc is regulated to exclude these." },
+    { "id": "coal_tar", "category": "Personal care", "match": ["coal tar"], "name": "Coal tar", "group": "1", "note": "IARC Group 1. Found in some anti-dandruff shampoos and hair dyes for its scale-reducing properties." },
+    { "id": "parabens", "category": "Personal care", "match": ["paraben"], "name": "Parabens", "group": "NE", "note": "Not IARC-classified as carcinogenic. Ongoing debate is about endocrine disruption, a separate question from cancer risk." },
+
+    { "id": "msg", "category": "Specifically cleared", "match": ["msg", "monosodium glutamate", "e621"], "name": "MSG (Monosodium glutamate)", "group": "CLEAR", "note": "No credible evidence of carcinogenicity. Extensively studied; FDA and EFSA classify it as safe at normal use levels." },
+    { "id": "carrageenan", "category": "Specifically cleared", "match": ["carrageenan", "e407"], "name": "Carrageenan", "group": "CLEAR", "note": "Food-grade carrageenan is not carcinogen-classified. (Degraded carrageenan/'poligeenan,' a chemically distinct substance not used as a food additive, is the source of unrelated animal-study concerns.)" }
+  ]
+}
