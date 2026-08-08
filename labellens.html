@@ -396,7 +396,7 @@
   </div>
 
   <footer>
-    DATA: Open Food Facts API · IARC Monographs (WHO) · prototype build<br>
+    DATA: Open Food/Beauty/Products Facts · UPCitemdb · IARC Monographs (WHO) · prototype build<br>
     <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span>
   </footer>
 </div>
@@ -458,29 +458,78 @@ function setStatus(msg, isError){
 }
 function clearStatus(){ statusEl.classList.remove('show'); }
 
+// Fallback chain: try the Open ___ Facts family first (same API shape, same nonprofit,
+// free & keyless), then fall back to UPCitemdb for general merchandise that isn't in any
+// of those — at that point we still show the product so it's not a dead end, just with
+// no ingredient data (UPCitemdb doesn't provide ingredient lists).
+const OPEN_FACTS_SOURCES = [
+  { label: "Open Food Facts",     base: "https://world.openfoodfacts.org/api/v2/product/" },
+  { label: "Open Beauty Facts",   base: "https://world.openbeautyfacts.org/api/v2/product/" },
+  { label: "Open Products Facts", base: "https://world.openproductsfacts.org/api/v2/product/" },
+];
+
+async function tryOpenFactsSources(code){
+  for (const src of OPEN_FACTS_SOURCES){
+    setStatus(`Checking ${src.label}…`);
+    try{
+      const res = await fetch(`${src.base}${encodeURIComponent(code)}.json`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.status === 1 && data.product){
+        return { product: data.product, sourceLabel: src.label };
+      }
+    }catch(e){
+      // network hiccup or this mirror is down — move on to the next source
+    }
+  }
+  return null;
+}
+
+async function tryUpcItemDb(code){
+  try{
+    const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.code === 'OK' && Array.isArray(data.items) && data.items.length){
+      return data.items[0];
+    }
+  }catch(e){
+    // UPCitemdb's trial endpoint may block cross-origin requests from some hosts —
+    // if so this just fails quietly and we report "not found" below.
+  }
+  return null;
+}
+
 async function lookupBarcode(code){
   code = code.trim();
   if (!code){ setStatus('Enter a barcode first.', true); return; }
   productEl.classList.remove('show');
-  setStatus('Looking up ' + code + ' via Open Food Facts…');
+  setStatus('Looking up ' + code + '…');
   try{
-    const [res] = await Promise.all([
-      fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json`),
-      tableReady ? Promise.resolve() : loadReferenceTable()
-    ]);
-    const data = await res.json();
-    if (data.status !== 1 || !data.product){
-      setStatus('No product found for that barcode in Open Food Facts.', true);
+    if (!tableReady) await loadReferenceTable();
+
+    const offResult = await tryOpenFactsSources(code);
+    if (offResult){
+      renderProduct(offResult.product, code, offResult.sourceLabel);
+      clearStatus();
       return;
     }
-    renderProduct(data.product, code);
-    clearStatus();
+
+    setStatus('Not in Open Food/Beauty/Products Facts — checking UPCitemdb…');
+    const upcItem = await tryUpcItemDb(code);
+    if (upcItem){
+      renderUpcItem(upcItem, code);
+      clearStatus();
+      return;
+    }
+
+    setStatus("No product found for that barcode in any connected database — try the photo option below instead.", true);
   }catch(err){
     setStatus('Lookup failed — network issue. ' + err.message, true);
   }
 }
 
-function renderProduct(p, code){
+function renderProduct(p, code, sourceLabel){
   const imgUrl = p.image_front_small_url || p.image_url || null;
   let ingredients = [];
   if (Array.isArray(p.ingredients) && p.ingredients.length){
@@ -490,10 +539,20 @@ function renderProduct(p, code){
   }
   renderIngredientsBlock({
     name: p.product_name || '(unnamed product)',
-    brand: (p.brands || '—') + ' · ' + code,
+    brand: (p.brands || '—') + ' · ' + code + ' · ' + sourceLabel,
     imgUrl,
     ingredients,
-    emptyMessage: 'No ingredient data available for this product in Open Food Facts.'
+    emptyMessage: `Found this product in ${sourceLabel}, but no ingredient list is on file. Try the photo option below to scan the label directly.`
+  });
+}
+
+function renderUpcItem(item, code){
+  renderIngredientsBlock({
+    name: item.title || '(unnamed product)',
+    brand: (item.brand || '—') + ' · ' + code + ' · UPCitemdb',
+    imgUrl: (item.images && item.images[0]) || null,
+    ingredients: [],
+    emptyMessage: "Found this product in UPCitemdb's general catalog, but it doesn't carry ingredient data. Use the photo option below to scan the label directly."
   });
 }
 
@@ -719,11 +778,11 @@ extractBtn.addEventListener('click', async () => {
     ocrExtracted.textContent = rawText.trim() || '(no text detected)';
     ocrExtracted.classList.add('show');
 
-    const ingredients = extractIngredientsFromOCR(rawText);
+    const { ingredients, foundHeader } = extractIngredientsFromOCR(rawText);
 
     renderIngredientsBlock({
       name: 'Scanned label',
-      brand: 'via photo OCR',
+      brand: foundHeader ? 'via photo OCR · found "INGREDIENTS:" label' : 'via photo OCR · no "INGREDIENTS:" label found, used full text',
       imgUrl: selectedImageDataUrl,
       ingredients,
       emptyMessage: "Couldn't confidently parse an ingredient list from this photo. Try a closer, well-lit, flat shot of just the ingredients text."
@@ -736,16 +795,55 @@ extractBtn.addEventListener('click', async () => {
   }
 });
 
-// Try to isolate the "Ingredients: ..." section if present, otherwise use the
-// whole extracted text — OCR on packaging is noisy, so this is intentionally lenient.
+// Find the "INGREDIENTS:" header and split what follows on commas — this is the actual
+// structure printed on packaging, so it's a more faithful parse than just splitting the
+// whole OCR blob. OCR frequently misreads letters in that header (E→A, I→1/L, etc. — the
+// literal example that prompted this: "INGRADIENTS"), so the header match is fuzzy on the
+// characters most commonly misread rather than requiring an exact "INGREDIENTS" string.
+const INGREDIENTS_HEADER_RE = /[il1]ngr[ea]d[il1]ents?\s*[:\-]?/i;
+
+// A handful of section headers that commonly follow the ingredient list on real labels —
+// used to cut off the capture before allergen/nutrition text gets pulled in as "ingredients".
+const STOP_SECTION_RE = /\b(contains|allergen|nutrition|manufactured|distributed|best before|best by|net wt|net weight|storage|directions|warning)\b/i;
+
 function extractIngredientsFromOCR(rawText){
-  const cleaned = rawText.replace(/\r/g, ' ').replace(/[|_]/g, '').trim();
-  const match = cleaned.match(/ingredients?\s*[:\-]?\s*([\s\S]+)/i);
-  let body = match ? match[1] : cleaned;
-  // Cut off at a likely end marker (allergen/nutrition sections) if present
-  const stopMatch = body.match(/\b(contains|allergen|nutrition|manufactured|distributed|best before|net wt)\b/i);
+  const cleaned = rawText.replace(/\r/g, ' ').replace(/\n/g, ' ').replace(/[|_]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const headerMatch = cleaned.match(INGREDIENTS_HEADER_RE);
+  let body, foundHeader;
+  if (headerMatch){
+    body = cleaned.slice(headerMatch.index + headerMatch[0].length);
+    foundHeader = true;
+  } else {
+    // Header not found (OCR missed it entirely) — fall back to treating the whole
+    // extracted text as the ingredient list, since that's still often usable.
+    body = cleaned;
+    foundHeader = false;
+  }
+
+  const stopMatch = body.match(STOP_SECTION_RE);
   if (stopMatch) body = body.slice(0, stopMatch.index);
-  return splitIngredientText(body).filter(s => /[a-z]/i.test(s));
+
+  const ingredients = splitOnTopLevelCommas(body)
+    .map(s => s.replace(/^[.\-–:\s]+|[.\-–:\s]+$/g, '').trim())
+    .filter(s => s.length > 1 && /[a-z]/i.test(s));
+
+  return { ingredients, foundHeader };
+}
+
+// Splits on commas, but not commas that fall inside parentheses — so "Vegetable Oil
+// (Palm, Sunflower)" stays as one ingredient instead of being torn into three fragments.
+function splitOnTopLevelCommas(text){
+  const result = [];
+  let depth = 0, current = '';
+  for (const ch of text){
+    if (ch === '('){ depth++; current += ch; }
+    else if (ch === ')'){ depth = Math.max(0, depth - 1); current += ch; }
+    else if (ch === ',' && depth === 0){ result.push(current); current = ''; }
+    else { current += ch; }
+  }
+  if (current.trim()) result.push(current);
+  return result.map(s => s.trim()).filter(Boolean);
 }
 
 </script>
