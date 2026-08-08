@@ -462,62 +462,106 @@ function clearStatus(){ statusEl.classList.remove('show'); }
 // free & keyless), then fall back to UPCitemdb for general merchandise that isn't in any
 // of those — at that point we still show the product so it's not a dead end, just with
 // no ingredient data (UPCitemdb doesn't provide ingredient lists).
+//
+// All sources are queried IN PARALLEL (not one-after-another) — the earlier sequential
+// version had to fully wait for each source to fail before trying the next, which meant
+// up to 4 stacked round-trips for a barcode that isn't in the first database. Running
+// them together cuts total wait time down to roughly the slowest single request instead
+// of the sum of all of them. Each request also has a timeout so one slow/dead server
+// can't hang the whole search.
 const OPEN_FACTS_SOURCES = [
   { label: "Open Food Facts",     base: "https://world.openfoodfacts.org/api/v2/product/" },
   { label: "Open Beauty Facts",   base: "https://world.openbeautyfacts.org/api/v2/product/" },
   { label: "Open Products Facts", base: "https://world.openproductsfacts.org/api/v2/product/" },
 ];
 
-async function tryOpenFactsSources(code){
-  for (const src of OPEN_FACTS_SOURCES){
-    setStatus(`Checking ${src.label}…`);
-    try{
-      const res = await fetch(`${src.base}${encodeURIComponent(code)}.json`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data.status === 1 && data.product){
-        return { product: data.product, sourceLabel: src.label };
-      }
-    }catch(e){
-      // network hiccup or this mirror is down — move on to the next source
+const LOOKUP_TIMEOUT_MS = 6000;
+
+async function fetchWithTimeout(url, timeoutMs){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try{
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function checkOneOpenFactsSource(src, code){
+  try{
+    const res = await fetchWithTimeout(`${src.base}${encodeURIComponent(code)}.json`, LOOKUP_TIMEOUT_MS);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status === 1 && data.product){
+      return { product: data.product, sourceLabel: src.label };
     }
+  }catch(e){
+    // timeout, network hiccup, or this mirror is down — treated as "no match" for this source
   }
   return null;
 }
 
+async function tryOpenFactsSources(code){
+  const results = await Promise.all(
+    OPEN_FACTS_SOURCES.map(src => checkOneOpenFactsSource(src, code))
+  );
+  // Preserve source priority (Food > Beauty > Products) even though requests ran in parallel
+  return results.find(r => r !== null) || null;
+}
+
 async function tryUpcItemDb(code){
   try{
-    const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
+    const res = await fetchWithTimeout(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`, LOOKUP_TIMEOUT_MS);
     if (!res.ok) return null;
     const data = await res.json();
     if (data.code === 'OK' && Array.isArray(data.items) && data.items.length){
       return data.items[0];
     }
   }catch(e){
-    // UPCitemdb's trial endpoint may block cross-origin requests from some hosts —
-    // if so this just fails quietly and we report "not found" below.
+    // UPCitemdb's trial endpoint may block cross-origin requests from some hosts, or
+    // this request timed out — if so this just fails quietly and we report "not found" below.
   }
   return null;
 }
+
+// Simple in-memory cache so re-scanning the same barcode in one session is instant —
+// handy for testing, and for products you check more than once.
+const lookupCache = new Map();
 
 async function lookupBarcode(code){
   code = code.trim();
   if (!code){ setStatus('Enter a barcode first.', true); return; }
   productEl.classList.remove('show');
-  setStatus('Looking up ' + code + '…');
-  try{
-    if (!tableReady) await loadReferenceTable();
 
-    const offResult = await tryOpenFactsSources(code);
+  if (lookupCache.has(code)){
+    const cached = lookupCache.get(code);
+    if (cached.type === 'off') renderProduct(cached.product, code, cached.sourceLabel);
+    else renderUpcItem(cached.item, code);
+    clearStatus();
+    return;
+  }
+
+  setStatus('Looking up ' + code + ' across product databases…');
+  try{
+    const tablePromise = tableReady ? Promise.resolve() : loadReferenceTable();
+    // Fire the Open Facts family AND UPCitemdb at the same time — UPCitemdb is a fallback
+    // in priority, but there's no reason to wait to even ask it, since it costs nothing
+    // to have the answer ready if none of the Open Facts sources have this barcode.
+    const [offResult, upcItem] = await Promise.all([
+      tryOpenFactsSources(code),
+      tryUpcItemDb(code),
+      tablePromise
+    ]);
+
     if (offResult){
+      lookupCache.set(code, { type: 'off', product: offResult.product, sourceLabel: offResult.sourceLabel });
       renderProduct(offResult.product, code, offResult.sourceLabel);
       clearStatus();
       return;
     }
 
-    setStatus('Not in Open Food/Beauty/Products Facts — checking UPCitemdb…');
-    const upcItem = await tryUpcItemDb(code);
     if (upcItem){
+      lookupCache.set(code, { type: 'upc', item: upcItem });
       renderUpcItem(upcItem, code);
       clearStatus();
       return;
