@@ -20,6 +20,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<!-- Optional, gitignored. Absent by default — BarcodeNest is skipped when there's no key.
+     onerror suppresses the 404 console noise when the file legitimately doesn't exist. -->
+<script src="./config.js" onerror="void 0"></script>
 <style>
   :root{
     --ink: #0d1512;
@@ -396,7 +399,7 @@
   </div>
 
   <footer>
-    DATA: Open Food/Beauty/Products Facts · UPCitemdb · IARC Monographs (WHO) · prototype build<br>
+    DATA: Open Food / Beauty / Products Facts · IARC Monographs (WHO) · prototype build<br>
     <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span><br>
     <span id="tableSourceNote" style="opacity:.8">Reference table: loading…</span>
   </footer>
@@ -513,17 +516,26 @@ function setStatus(msg, isError){
 }
 function clearStatus(){ statusEl.classList.remove('show'); }
 
-// Fallback chain: try the Open ___ Facts family first (same API shape, same nonprofit,
-// free & keyless), then fall back to UPCitemdb for general merchandise that isn't in any
-// of those — at that point we still show the product so it's not a dead end, just with
-// no ingredient data (UPCitemdb doesn't provide ingredient lists).
+// Product data sources — INGREDIENT-BEARING SOURCES ONLY.
+//
+// Deliberate policy: every source queried here must return an actual ingredient list.
+// General barcode/commerce APIs (UPCitemdb, Go-UPC, Barcode Lookup, etc.) index product
+// names, brands and images but carry no ingredient data, so a "hit" from one of them
+// can't be classified — it just produces a result that looks like an answer while
+// telling the user nothing about what's in the product. Better to report an honest miss
+// and send them to the photo-OCR path, which reads the ingredients off the label itself.
+//
+// The Open ___ Facts family is one nonprofit, one API shape, free and keyless:
+//   Food Facts     → groceries
+//   Beauty Facts   → cosmetics / personal care
+//   Products Facts → general household goods
 //
 // All sources are queried IN PARALLEL (not one-after-another) — the earlier sequential
 // version had to fully wait for each source to fail before trying the next, which meant
-// up to 4 stacked round-trips for a barcode that isn't in the first database. Running
-// them together cuts total wait time down to roughly the slowest single request instead
-// of the sum of all of them. Each request also has a timeout so one slow/dead server
-// can't hang the whole search.
+// stacked round-trips for a barcode that isn't in the first database. Running them
+// together cuts total wait time down to roughly the slowest single request instead of
+// the sum of all of them. Each request also has a timeout so one slow/dead server can't
+// hang the whole search.
 const OPEN_FACTS_SOURCES = [
   { label: "Open Food Facts",     base: "https://world.openfoodfacts.org/api/v2/product/" },
   { label: "Open Beauty Facts",   base: "https://world.openbeautyfacts.org/api/v2/product/" },
@@ -531,6 +543,79 @@ const OPEN_FACTS_SOURCES = [
 ];
 
 const LOOKUP_TIMEOUT_MS = 6000;
+
+// ---------- BarcodeNest (optional fallback) ----------
+// Free tier is 250 lookups/month (~8/day), so this is deliberately NOT fired in parallel
+// with the Open Facts sources. It runs only after all of them miss — otherwise every
+// single scan would burn quota even when Open Food Facts already had the answer.
+//
+// SECURITY NOTE: BarcodeNest's own docs say not to expose API keys in client-side code
+// or public repositories. LabelLens is a static client-side app, so ANY key placed here
+// is readable by anyone who views source or opens devtools. See README-barcodenest.md
+// for the options. The key is read from an optional config.js that is gitignored, so
+// the default state of this repo ships with no key and simply skips this source.
+const BARCODENEST_TIMEOUT_MS = 5000;
+const BARCODENEST_ENDPOINT = 'https://api.barcodenest.com/v1/products/';
+
+function getBarcodeNestKey(){
+  // window.LABELLENS_CONFIG is set by the optional, gitignored config.js
+  return (window.LABELLENS_CONFIG && window.LABELLENS_CONFIG.barcodeNestApiKey) || null;
+}
+
+async function tryBarcodeNest(code){
+  const key = getBarcodeNestKey();
+  if (!key) return null; // no key configured — source is simply skipped
+
+  try{
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), BARCODENEST_TIMEOUT_MS);
+    let res;
+    try{
+      res = await fetch(`${BARCODENEST_ENDPOINT}${encodeURIComponent(code)}`, {
+        headers: { 'X-API-Key': key },
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (res.status === 401 || res.status === 403){
+      console.warn('LabelLens: BarcodeNest rejected the API key (HTTP ' + res.status + ').');
+      return null;
+    }
+    if (res.status === 429){
+      console.warn('LabelLens: BarcodeNest rate limit or monthly quota reached (HTTP 429).');
+      return null;
+    }
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!data || data.found !== true || !data.product) return null;
+
+    const p = data.product;
+    // Only useful to us if it actually carries ingredients — BarcodeNest returns
+    // ingredients "where available", so a hit without them is treated as a miss
+    // rather than rendering a product card we can't classify.
+    const ingredientsText = p.ingredients || p.ingredients_text || null;
+    if (!ingredientsText) return null;
+
+    return {
+      product: {
+        product_name: p.name || p.title || '(unnamed product)',
+        brands: p.brand || '',
+        ingredients_text: typeof ingredientsText === 'string'
+          ? ingredientsText
+          : (Array.isArray(ingredientsText) ? ingredientsText.join(', ') : ''),
+        image_url: p.image || (Array.isArray(p.images) ? p.images[0] : null) || null
+      },
+      sourceLabel: 'BarcodeNest'
+    };
+  }catch(e){
+    // timeout, CORS block, or network failure — treated as a miss
+    console.warn('LabelLens: BarcodeNest lookup failed or timed out.', e);
+    return null;
+  }
+}
 
 async function fetchWithTimeout(url, timeoutMs){
   const controller = new AbortController();
@@ -564,21 +649,6 @@ async function tryOpenFactsSources(code){
   return results.find(r => r !== null) || null;
 }
 
-async function tryUpcItemDb(code){
-  try{
-    const res = await fetchWithTimeout(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`, LOOKUP_TIMEOUT_MS);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.code === 'OK' && Array.isArray(data.items) && data.items.length){
-      return data.items[0];
-    }
-  }catch(e){
-    // UPCitemdb's trial endpoint may block cross-origin requests from some hosts, or
-    // this request timed out — if so this just fails quietly and we report "not found" below.
-  }
-  return null;
-}
-
 // Simple in-memory cache so re-scanning the same barcode in one session is instant —
 // handy for testing, and for products you check more than once.
 const lookupCache = new Map();
@@ -590,21 +660,16 @@ async function lookupBarcode(code){
 
   if (lookupCache.has(code)){
     const cached = lookupCache.get(code);
-    if (cached.type === 'off') renderProduct(cached.product, code, cached.sourceLabel);
-    else renderUpcItem(cached.item, code);
+    renderProduct(cached.product, code, cached.sourceLabel);
     clearStatus();
     return;
   }
 
-  setStatus('Looking up ' + code + ' across product databases…');
+  setStatus('Looking up ' + code + ' across ingredient databases…');
   try{
     const tablePromise = tableReady ? Promise.resolve() : loadReferenceTable();
-    // Fire the Open Facts family AND UPCitemdb at the same time — UPCitemdb is a fallback
-    // in priority, but there's no reason to wait to even ask it, since it costs nothing
-    // to have the answer ready if none of the Open Facts sources have this barcode.
-    const [offResult, upcItem] = await Promise.all([
+    const [offResult] = await Promise.all([
       tryOpenFactsSources(code),
-      tryUpcItemDb(code),
       tablePromise
     ]);
 
@@ -614,20 +679,26 @@ async function lookupBarcode(code){
     if (!tableLoaded){ showTableUnavailable(); return; }
 
     if (offResult){
-      lookupCache.set(code, { type: 'off', product: offResult.product, sourceLabel: offResult.sourceLabel });
+      lookupCache.set(code, { product: offResult.product, sourceLabel: offResult.sourceLabel });
       renderProduct(offResult.product, code, offResult.sourceLabel);
       clearStatus();
       return;
     }
 
-    if (upcItem){
-      lookupCache.set(code, { type: 'upc', item: upcItem });
-      renderUpcItem(upcItem, code);
-      clearStatus();
-      return;
+    // Only now try BarcodeNest — sequential, not parallel, so the limited free-tier
+    // quota is spent only on barcodes the free open databases genuinely don't have.
+    if (getBarcodeNestKey()){
+      setStatus('Not in the open databases — checking BarcodeNest…');
+      const bnResult = await tryBarcodeNest(code);
+      if (bnResult){
+        lookupCache.set(code, { product: bnResult.product, sourceLabel: bnResult.sourceLabel });
+        renderProduct(bnResult.product, code, bnResult.sourceLabel);
+        clearStatus();
+        return;
+      }
     }
 
-    setStatus("No product found for that barcode in any connected database — try the photo option below instead.", true);
+    setStatus("Not found in any connected ingredient database — use the photo option below to read the label directly.", true);
   }catch(err){
     setStatus('Lookup failed — network issue. ' + err.message, true);
   }
@@ -647,16 +718,6 @@ function renderProduct(p, code, sourceLabel){
     imgUrl,
     ingredients,
     emptyMessage: `Found this product in ${sourceLabel}, but no ingredient list is on file. Try the photo option below to scan the label directly.`
-  });
-}
-
-function renderUpcItem(item, code){
-  renderIngredientsBlock({
-    name: item.title || '(unnamed product)',
-    brand: (item.brand || '—') + ' · ' + code + ' · UPCitemdb',
-    imgUrl: (item.images && item.images[0]) || null,
-    ingredients: [],
-    emptyMessage: "Found this product in UPCitemdb's general catalog, but it doesn't carry ingredient data. Use the photo option below to scan the label directly."
   });
 }
 
