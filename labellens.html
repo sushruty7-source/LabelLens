@@ -778,7 +778,7 @@ startBtn.addEventListener('click', async () => {
 // How long the live camera scan runs before giving up and releasing the camera.
 // Kept short deliberately — a scanner that spins indefinitely reads as broken, drains
 // battery, and holds the camera open. Raise this if barcodes need longer to acquire.
-const SCAN_TIMEOUT_MS = 5000;
+const SCAN_TIMEOUT_MS = 10000;
 
 // Auto-stop the scan after SCAN_TIMEOUT_MS rather than running forever.
 function startScanTimeout(){
