@@ -397,38 +397,93 @@
 
   <footer>
     DATA: Open Food/Beauty/Products Facts · UPCitemdb · IARC Monographs (WHO) · prototype build<br>
-    <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span>
+    <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span><br>
+    <span id="tableSourceNote" style="opacity:.8">Reference table: loading…</span>
   </footer>
 </div>
 
 <script>
-// ---------- Reference table now lives in carcinogen-table.json ----------
-// Loaded async below so the table can be edited/expanded without touching this file.
-// Falls back to a tiny embedded subset only if the fetch is blocked (e.g. opening this
-// HTML file directly via file:// instead of a server, where local JSON fetches are
-// blocked by the browser's CORS rules).
+// ---------- Reference table: carcinogen-table.json is the ONLY source ----------
+// There is deliberately no embedded fallback copy. A second copy in this file would
+// be a second thing to keep in sync, and a stale duplicate silently producing wrong
+// classifications is worse than a clean failure.
+//
+// The trade-off of a single source is that a failed load leaves the app with no data
+// at all. That case is handled by REFUSING TO CLASSIFY rather than returning "nothing
+// found" — for a tool like this, a false "no carcinogens detected" is the most harmful
+// possible output, so the app must never imply a clean result it can't back up.
 let CARCINOGEN_TABLE = [];
-let tableReady = false;
-
-const FALLBACK_TABLE = [
-  { match: ["sodium nitrite", "e250"], name: "Nitrite curing salts", group: "2A", note: "IARC 2A. (Fallback entry — full table failed to load; see carcinogen-table.json.)" },
-  { match: ["aspartame", "e951"], name: "Aspartame", group: "2B", note: "IARC 2B. (Fallback entry — full table failed to load; see carcinogen-table.json.)" },
-  { match: ["processed meat", "bacon"], name: "Processed meat", group: "1", note: "IARC Group 1. (Fallback entry — full table failed to load; see carcinogen-table.json.)" },
-];
+let tableReady = false;   // true once a load attempt has finished (success OR failure)
+let tableLoaded = false;  // true only if the table is actually usable
+let tableError = null;
 
 async function loadReferenceTable(){
   try{
-    const res = await fetch('./carcinogen-table.json');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const res = await fetch('./carcinogen-table.json', { cache: 'no-cache' });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' fetching carcinogen-table.json');
     const data = await res.json();
+
+    if (!data || !Array.isArray(data.entries) || data.entries.length === 0){
+      throw new Error('carcinogen-table.json loaded but has no "entries" array');
+    }
+    // Validate shape up front — a malformed entry would otherwise throw mid-scan or,
+    // worse, quietly never match anything.
+    const bad = data.entries.findIndex(e =>
+      !e || !Array.isArray(e.match) || e.match.length === 0 ||
+      typeof e.name !== 'string' || typeof e.group !== 'string'
+    );
+    if (bad !== -1){
+      throw new Error(`carcinogen-table.json entry #${bad} is malformed (needs match[], name, group)`);
+    }
+
     CARCINOGEN_TABLE = data.entries;
-    tableReady = true;
+    tableLoaded = true;
+    tableError = null;
   }catch(err){
-    CARCINOGEN_TABLE = FALLBACK_TABLE;
-    tableReady = true;
-    console.warn('Could not load carcinogen-table.json (likely opened via file:// — serve over http instead). Using small fallback table.', err);
+    CARCINOGEN_TABLE = [];
+    tableLoaded = false;
+    tableError = err;
+    console.error(
+      'LabelLens: FAILED to load carcinogen-table.json — classification is disabled.\n' +
+      'Common causes:\n' +
+      '  1. Opened via file:// — browsers block local JSON fetches. Serve over http ' +
+      'instead, e.g. `python3 -m http.server` then visit http://localhost:8000/labellens.html\n' +
+      '  2. carcinogen-table.json was not uploaded alongside labellens.html\n' +
+      '  3. The two files are in different folders\n' +
+      'Underlying error:', err
+    );
+  }
+  tableReady = true;
+  updateTableSourceNote();
+}
+
+function updateTableSourceNote(){
+  const el = document.getElementById('tableSourceNote');
+  if (!el) return;
+  if (tableLoaded){
+    el.textContent = `Reference table: carcinogen-table.json (${CARCINOGEN_TABLE.length} entries)`;
+    el.style.color = '';
+  } else {
+    el.textContent = 'Reference table FAILED to load — classification is disabled. See console.';
+    el.style.color = 'var(--red)';
   }
 }
+
+// Shown in place of results whenever the table isn't available, so the user never
+// sees an empty/clean-looking result that they might read as "this product is fine".
+function showTableUnavailable(){
+  setStatus('Cannot classify — carcinogen-table.json failed to load. See console for details.', true);
+  document.getElementById('riskSummary').innerHTML = '';
+  document.getElementById('ingredientList').innerHTML =
+    '<div class="ing-row"><div class="ing-badge g1">!</div><div>' +
+    '<div class="ing-name">Reference data unavailable</div>' +
+    '<div class="ing-note">carcinogen-table.json could not be loaded, so ingredients cannot be checked. ' +
+    'This is NOT a result of "no carcinogens found" — no check was performed at all. ' +
+    'If you opened this file directly, serve it over http instead (e.g. python3 -m http.server).</div>' +
+    '</div></div>';
+  productEl.classList.add('show');
+}
+
 loadReferenceTable();
 
 function classify(ingredientName){
@@ -552,6 +607,11 @@ async function lookupBarcode(code){
       tryUpcItemDb(code),
       tablePromise
     ]);
+
+    // If the first load attempt failed, try once more before giving up — a transient
+    // network blip on page load shouldn't permanently disable the app for the session.
+    if (!tableLoaded) await loadReferenceTable();
+    if (!tableLoaded){ showTableUnavailable(); return; }
 
     if (offResult){
       lookupCache.set(code, { type: 'off', product: offResult.product, sourceLabel: offResult.sourceLabel });
@@ -797,6 +857,12 @@ extractBtn.addEventListener('click', async () => {
     setStatus('OCR library failed to load — check your connection and reload.', true);
     return;
   }
+  // Check the reference table BEFORE running OCR — no point spending 10+ seconds
+  // reading the label if we have nothing to check the ingredients against.
+  if (!tableReady) await loadReferenceTable();
+  if (!tableLoaded) await loadReferenceTable();
+  if (!tableLoaded){ showTableUnavailable(); return; }
+
   extractBtn.disabled = true;
   ocrProgress.classList.add('show');
   ocrExtracted.classList.remove('show');
