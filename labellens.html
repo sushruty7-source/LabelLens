@@ -20,9 +20,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<!-- Optional, gitignored. Absent by default — BarcodeNest is skipped when there's no key.
-     onerror suppresses the 404 console noise when the file legitimately doesn't exist. -->
-<script src="./config.js" onerror="void 0"></script>
 <style>
   :root{
     --ink: #0d1512;
@@ -91,7 +88,7 @@
     padding:20px; line-height:1.6;
   }
   .laser-line{
-    position:absolute; left:6%; right:6%; height:2px;
+    position:absolute; left:8%; right:8%; height:2px;
     background: linear-gradient(90deg, transparent, var(--laser), transparent);
     box-shadow: 0 0 8px 1px var(--laser);
     top:50%;
@@ -102,17 +99,19 @@
   .scanning .laser-line{display:block;}
   .scanning .viewport-idle{display:none;}
   @keyframes sweep{
-    0%,100%{ top:18%; }
-    50%{ top:82%; }
+    0%,100%{ top:32%; }
+    50%{ top:68%; }
   }
+  /* Corner guides outline a WIDE, SHORT target — the shape of a retail barcode —
+     rather than the full frame, so it's obvious the barcode should span the width. */
   .corner{
     position:absolute; width:22px; height:22px; border-color: var(--green);
     opacity:.85; pointer-events:none;
   }
-  .corner.tl{top:14px;left:14px;border-top:2px solid;border-left:2px solid;border-radius:4px 0 0 0;}
-  .corner.tr{top:14px;right:14px;border-top:2px solid;border-right:2px solid;border-radius:0 4px 0 0;}
-  .corner.bl{bottom:14px;left:14px;border-bottom:2px solid;border-left:2px solid;border-radius:0 0 0 4px;}
-  .corner.br{bottom:14px;right:14px;border-bottom:2px solid;border-right:2px solid;border-radius:0 0 4px 0;}
+  .corner.tl{top:29%;left:8%;border-top:2px solid;border-left:2px solid;border-radius:4px 0 0 0;}
+  .corner.tr{top:29%;right:8%;border-top:2px solid;border-right:2px solid;border-radius:0 4px 0 0;}
+  .corner.bl{bottom:29%;left:8%;border-bottom:2px solid;border-left:2px solid;border-radius:0 0 0 4px;}
+  .corner.br{bottom:29%;right:8%;border-bottom:2px solid;border-right:2px solid;border-radius:0 0 4px 0;}
 
   .scanner-controls{
     padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
@@ -399,7 +398,7 @@
   </div>
 
   <footer>
-    DATA: Open Food / Beauty / Products Facts · IARC Monographs (WHO) · prototype build<br>
+    DATA: Open Food Facts · IARC Monographs (WHO) · prototype build<br>
     <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span><br>
     <span id="tableSourceNote" style="opacity:.8">Reference table: loading…</span>
   </footer>
@@ -516,106 +515,17 @@ function setStatus(msg, isError){
 }
 function clearStatus(){ statusEl.classList.remove('show'); }
 
-// Product data sources — INGREDIENT-BEARING SOURCES ONLY.
+// Product data source — Open Food Facts only.
 //
-// Deliberate policy: every source queried here must return an actual ingredient list.
-// General barcode/commerce APIs (UPCitemdb, Go-UPC, Barcode Lookup, etc.) index product
-// names, brands and images but carry no ingredient data, so a "hit" from one of them
-// can't be classified — it just produces a result that looks like an answer while
-// telling the user nothing about what's in the product. Better to report an honest miss
-// and send them to the photo-OCR path, which reads the ingredients off the label itself.
+// Single source by design: free, keyless, no API key to leak in a public static app,
+// and it returns a real parsed ingredient list (which general barcode/commerce APIs
+// like UPCitemdb or Go-UPC do not — they index names and images only, so a "hit" from
+// one of them can't be classified).
 //
-// The Open ___ Facts family is one nonprofit, one API shape, free and keyless:
-//   Food Facts     → groceries
-//   Beauty Facts   → cosmetics / personal care
-//   Products Facts → general household goods
-//
-// All sources are queried IN PARALLEL (not one-after-another) — the earlier sequential
-// version had to fully wait for each source to fail before trying the next, which meant
-// stacked round-trips for a barcode that isn't in the first database. Running them
-// together cuts total wait time down to roughly the slowest single request instead of
-// the sum of all of them. Each request also has a timeout so one slow/dead server can't
-// hang the whole search.
-const OPEN_FACTS_SOURCES = [
-  { label: "Open Food Facts",     base: "https://world.openfoodfacts.org/api/v2/product/" },
-  { label: "Open Beauty Facts",   base: "https://world.openbeautyfacts.org/api/v2/product/" },
-  { label: "Open Products Facts", base: "https://world.openproductsfacts.org/api/v2/product/" },
-];
-
+// Anything Open Food Facts doesn't have is handled by the photo-OCR path, which reads
+// the ingredients straight off the label and doesn't depend on any database at all.
+const OPEN_FOOD_FACTS_BASE = "https://world.openfoodfacts.org/api/v2/product/";
 const LOOKUP_TIMEOUT_MS = 6000;
-
-// ---------- BarcodeNest (optional fallback) ----------
-// Free tier is 250 lookups/month (~8/day), so this is deliberately NOT fired in parallel
-// with the Open Facts sources. It runs only after all of them miss — otherwise every
-// single scan would burn quota even when Open Food Facts already had the answer.
-//
-// SECURITY NOTE: BarcodeNest's own docs say not to expose API keys in client-side code
-// or public repositories. LabelLens is a static client-side app, so ANY key placed here
-// is readable by anyone who views source or opens devtools. See README-barcodenest.md
-// for the options. The key is read from an optional config.js that is gitignored, so
-// the default state of this repo ships with no key and simply skips this source.
-const BARCODENEST_TIMEOUT_MS = 5000;
-const BARCODENEST_ENDPOINT = 'https://api.barcodenest.com/v1/products/';
-
-function getBarcodeNestKey(){
-  // window.LABELLENS_CONFIG is set by the optional, gitignored config.js
-  return (window.LABELLENS_CONFIG && window.LABELLENS_CONFIG.barcodeNestApiKey) || null;
-}
-
-async function tryBarcodeNest(code){
-  const key = getBarcodeNestKey();
-  if (!key) return null; // no key configured — source is simply skipped
-
-  try{
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), BARCODENEST_TIMEOUT_MS);
-    let res;
-    try{
-      res = await fetch(`${BARCODENEST_ENDPOINT}${encodeURIComponent(code)}`, {
-        headers: { 'X-API-Key': key },
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (res.status === 401 || res.status === 403){
-      console.warn('LabelLens: BarcodeNest rejected the API key (HTTP ' + res.status + ').');
-      return null;
-    }
-    if (res.status === 429){
-      console.warn('LabelLens: BarcodeNest rate limit or monthly quota reached (HTTP 429).');
-      return null;
-    }
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    if (!data || data.found !== true || !data.product) return null;
-
-    const p = data.product;
-    // Only useful to us if it actually carries ingredients — BarcodeNest returns
-    // ingredients "where available", so a hit without them is treated as a miss
-    // rather than rendering a product card we can't classify.
-    const ingredientsText = p.ingredients || p.ingredients_text || null;
-    if (!ingredientsText) return null;
-
-    return {
-      product: {
-        product_name: p.name || p.title || '(unnamed product)',
-        brands: p.brand || '',
-        ingredients_text: typeof ingredientsText === 'string'
-          ? ingredientsText
-          : (Array.isArray(ingredientsText) ? ingredientsText.join(', ') : ''),
-        image_url: p.image || (Array.isArray(p.images) ? p.images[0] : null) || null
-      },
-      sourceLabel: 'BarcodeNest'
-    };
-  }catch(e){
-    // timeout, CORS block, or network failure — treated as a miss
-    console.warn('LabelLens: BarcodeNest lookup failed or timed out.', e);
-    return null;
-  }
-}
 
 async function fetchWithTimeout(url, timeoutMs){
   const controller = new AbortController();
@@ -627,26 +537,21 @@ async function fetchWithTimeout(url, timeoutMs){
   }
 }
 
-async function checkOneOpenFactsSource(src, code){
+async function tryOpenFoodFacts(code){
   try{
-    const res = await fetchWithTimeout(`${src.base}${encodeURIComponent(code)}.json`, LOOKUP_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`${OPEN_FOOD_FACTS_BASE}${encodeURIComponent(code)}.json`, LOOKUP_TIMEOUT_MS);
     if (!res.ok) return null;
     const data = await res.json();
+    // NOTE: Open Food Facts returns HTTP 200 even for a barcode it doesn't have —
+    // the miss is signalled by status:0 in the body, so checking res.ok alone would
+    // silently treat "not found" as a successful empty result.
     if (data.status === 1 && data.product){
-      return { product: data.product, sourceLabel: src.label };
+      return { product: data.product, sourceLabel: 'Open Food Facts' };
     }
   }catch(e){
-    // timeout, network hiccup, or this mirror is down — treated as "no match" for this source
+    // timeout, network hiccup, or the server is down — treated as no match
   }
   return null;
-}
-
-async function tryOpenFactsSources(code){
-  const results = await Promise.all(
-    OPEN_FACTS_SOURCES.map(src => checkOneOpenFactsSource(src, code))
-  );
-  // Preserve source priority (Food > Beauty > Products) even though requests ran in parallel
-  return results.find(r => r !== null) || null;
 }
 
 // Simple in-memory cache so re-scanning the same barcode in one session is instant —
@@ -665,11 +570,11 @@ async function lookupBarcode(code){
     return;
   }
 
-  setStatus('Looking up ' + code + ' across ingredient databases…');
+  setStatus('Looking up ' + code + ' in Open Food Facts…');
   try{
     const tablePromise = tableReady ? Promise.resolve() : loadReferenceTable();
     const [offResult] = await Promise.all([
-      tryOpenFactsSources(code),
+      tryOpenFoodFacts(code),
       tablePromise
     ]);
 
@@ -685,20 +590,7 @@ async function lookupBarcode(code){
       return;
     }
 
-    // Only now try BarcodeNest — sequential, not parallel, so the limited free-tier
-    // quota is spent only on barcodes the free open databases genuinely don't have.
-    if (getBarcodeNestKey()){
-      setStatus('Not in the open databases — checking BarcodeNest…');
-      const bnResult = await tryBarcodeNest(code);
-      if (bnResult){
-        lookupCache.set(code, { product: bnResult.product, sourceLabel: bnResult.sourceLabel });
-        renderProduct(bnResult.product, code, bnResult.sourceLabel);
-        clearStatus();
-        return;
-      }
-    }
-
-    setStatus("Not found in any connected ingredient database — use the photo option below to read the label directly.", true);
+    setStatus("Not found in Open Food Facts — use the photo option below to read the label directly.", true);
   }catch(err){
     setStatus('Lookup failed — network issue. ' + err.message, true);
   }
@@ -803,26 +695,76 @@ document.querySelectorAll('.sample-chip').forEach(chip => {
 
 // ---------- Camera scanning (graceful fallback if blocked) ----------
 let html5QrCode = null;
+let scanHintTimer = null;
 const startBtn = document.getElementById('startScanBtn');
 const stopBtn = document.getElementById('stopScanBtn');
 const viewportIdle = document.getElementById('viewportIdle');
 
+// Retail barcodes only. The default html5-qrcode config tries EVERY symbology
+// (QR, Aztec, DataMatrix, PDF417, and all 1D types) on every single frame, which
+// wastes most of the decode budget on formats that will never appear on a grocery
+// package — and makes detection feel like it's hanging. Restricting to the formats
+// actually printed on consumer products is the single biggest speed win here.
+function retailBarcodeFormats(){
+  if (typeof Html5QrcodeSupportedFormats === 'undefined') return undefined;
+  return [
+    Html5QrcodeSupportedFormats.EAN_13,   // most global retail products
+    Html5QrcodeSupportedFormats.EAN_8,    // small packages
+    Html5QrcodeSupportedFormats.UPC_A,    // US retail
+    Html5QrcodeSupportedFormats.UPC_E,    // compressed US
+    Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
+    Html5QrcodeSupportedFormats.CODE_128, // some store-brand/private label
+  ];
+}
+
+// 1D barcodes are WIDE and SHORT. The previous 240x140 box was near-square (a QR
+// shape), so a barcode held naturally often didn't fit inside it — and html5-qrcode
+// only decodes what's inside the box. This sizes a wide box relative to the actual
+// viewport instead of hardcoding pixels that may exceed a narrow phone screen.
+function wideScanBox(viewfinderWidth, viewfinderHeight){
+  const width = Math.floor(Math.min(viewfinderWidth, viewfinderHeight * 2.2) * 0.85);
+  const height = Math.floor(Math.max(70, Math.min(width * 0.45, viewfinderHeight * 0.5)));
+  return { width, height };
+}
+
 startBtn.addEventListener('click', async () => {
   try{
-    html5QrCode = new Html5Qrcode("reader");
+    html5QrCode = new Html5Qrcode("reader", {
+      formatsToSupport: retailBarcodeFormats(),
+      // Uses the browser's native BarcodeDetector where available (Chrome on Android,
+      // and newer desktop Chrome). Dramatically faster than the JS/WASM decode path.
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      verbose: false
+    });
     scannerCard.classList.add('scanning');
+
     await html5QrCode.start(
       { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 240, height: 140 } },
+      {
+        fps: 15,
+        qrbox: wideScanBox,
+        // 1D decoding needs enough horizontal pixels across the bars — the default
+        // capture resolution is often too low to resolve a small barcode reliably.
+        videoConstraints: {
+          facingMode: "environment",
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 },
+          advanced: [{ focusMode: "continuous" }]
+        }
+      },
       (decodedText) => {
+        clearScanHint();
         document.getElementById('barcodeInput').value = decodedText;
         lookupBarcode(decodedText);
         stopScan();
       },
-      () => { /* per-frame decode errors, ignore */ }
+      () => { /* per-frame decode misses are normal and constant — ignore */ }
     );
+
     startBtn.style.display = 'none';
     stopBtn.style.display = 'block';
+    startScanHint();
+
   }catch(err){
     scannerCard.classList.remove('scanning');
     viewportIdle.innerHTML = 'CAMERA BLOCKED HERE<br>if you\'re viewing this inside a preview/embedded window, open the page directly in your phone\'s browser (Safari/Chrome) — or use the photo-upload option below, which uses your phone\'s native camera app instead.';
@@ -830,9 +772,22 @@ startBtn.addEventListener('click', async () => {
   }
 });
 
+// If nothing decodes within a reasonable window, say so rather than letting the
+// laser animation spin forever with no explanation — silence reads as "broken".
+function startScanHint(){
+  clearScanHint();
+  scanHintTimer = setTimeout(() => {
+    setStatus('Still scanning… hold the barcode flat, fill the width of the box, and give it good light. No luck? Type the number below or use the photo option.', true);
+  }, 12000);
+}
+function clearScanHint(){
+  if (scanHintTimer){ clearTimeout(scanHintTimer); scanHintTimer = null; }
+}
+
 stopBtn.addEventListener('click', stopScan);
 
 function stopScan(){
+  clearScanHint();
   if (html5QrCode){
     html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
   }
