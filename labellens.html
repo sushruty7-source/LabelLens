@@ -117,22 +117,19 @@
     padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
   }
 
-  .barcode-photo-row{
-    padding:0 16px 14px; border-top:1px solid var(--line); padding-top:14px;
+
+  /* Rescan prompt — shown after a failed read */
+  .rescan{ display:none; border-top:1px solid var(--line); padding:14px 16px; }
+  .rescan.show{ display:block; }
+  .rescan-msg{
+    font-family:var(--mono); font-size:11px; color:var(--amber);
+    letter-spacing:0.03em; margin-bottom:10px;
+  }
+  .rescan-tips{
+    margin:0 0 12px; padding-left:16px;
+    font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.75;
   }
 
-  /* Diagnostics — hidden until a scan fails, then shows exactly what the camera did */
-  .diag{ display:none; border-top:1px solid var(--line); padding:12px 16px; }
-  .diag.show{ display:block; }
-  .diag-head{
-    font-family:var(--mono); font-size:10px; text-transform:uppercase;
-    letter-spacing:0.08em; color:var(--text-dim); margin-bottom:8px;
-  }
-  .diag pre{
-    margin:0; font-family:var(--mono); font-size:10.5px; line-height:1.6;
-    color:var(--text-dim); white-space:pre-wrap; word-break:break-word;
-    max-height:180px; overflow-y:auto;
-  }
   button{
     font-family: var(--display); font-weight:600; font-size:14px;
     border-radius:8px; border:1px solid var(--line); cursor:pointer;
@@ -345,14 +342,15 @@
       <button class="btn-primary" id="startScanBtn">Start camera scan</button>
       <button class="btn-ghost" id="stopScanBtn" style="display:none;">Stop</button>
     </div>
-    <div class="barcode-photo-row">
-      <button class="btn-ghost" id="barcodePhotoBtn" style="width:100%;">📷 Photo of a barcode (more reliable)</button>
-      <input type="file" id="barcodePhotoInput" accept="image/*" capture="environment" style="display:none;">
-      <p class="photo-hint" style="margin:8px 0 0;">Decodes a still photo at full resolution — usually works when live scanning won't.</p>
-    </div>
-    <div class="diag" id="diagPanel">
-      <div class="diag-head">Scanner diagnostics</div>
-      <pre id="diagOutput"></pre>
+    <div class="rescan" id="rescanPanel">
+      <div class="rescan-msg">Couldn't read a barcode.</div>
+      <ul class="rescan-tips" id="rescanTips">
+        <li>Fill the width of the guide corners with the barcode</li>
+        <li>Hold the package flat — curved surfaces distort the bars</li>
+        <li>Even light, no glare or shadow across the code</li>
+        <li>Steady for a moment so the camera can focus</li>
+      </ul>
+      <button class="btn-primary" id="rescanBtn" style="width:100%;">Scan again</button>
     </div>
   </div>
 
@@ -762,9 +760,7 @@ function wideScanBox(viewfinderWidth, viewfinderHeight){
 //
 // Preferred path: enumerate cameras and pass a deviceId string, which is unambiguous
 // and sidesteps facingMode quirks across browsers.
-// Wraps any promise so a hung call can't freeze the UI forever. getCameras() in
-// particular triggers the permission prompt and can never settle on some browsers —
-// that hang is what left the app stuck on "STARTING CAMERA…" with no way out.
+// Wraps a promise so a hung camera call can't freeze the UI with no way out.
 function withTimeout(promise, ms, label){
   return Promise.race([
     promise,
@@ -772,137 +768,68 @@ function withTimeout(promise, ms, label){
   ]);
 }
 
-// Simple forms FIRST. The earlier version called getCameras() up front, putting a
-// call that can hang on the critical path before anything else could run. start()
-// requests permission by itself, so enumeration isn't needed for the common case —
-// it's now only a later fallback, and time-boxed.
-async function buildCameraTiers(){
-  const tiers = [
-    { label: 'facingMode "environment"',     cameraId: { facingMode: "environment" }, config: {} },
-    { label: 'facingMode exact environment', cameraId: { facingMode: { exact: "environment" } }, config: {} },
-  ];
+// Basic scanner: one camera request using the plain {facingMode:"environment"} form,
+// which is the shape html5-qrcode actually accepts. No enumeration, no tier ladder —
+// those added failure modes (hangs, invalid configs) without improving reads.
+startBtn.addEventListener('click', () => startScan());
+document.getElementById('rescanBtn').addEventListener('click', () => startScan());
 
-  try{
-    diag('Enumerating cameras (max 6s)…');
-    const cams = await withTimeout(Html5Qrcode.getCameras(), 6000, 'getCameras()');
-    diag('Cameras found: ' + cams.length);
-    cams.forEach((c, i) => diag('  [' + i + '] ' + (c.label || '(no label)')));
-
-    const rear = cams.find(c => /back|rear|environment/i.test(c.label || ''));
-    const chosen = rear || cams[cams.length - 1];
-    if (chosen){
-      diag('Rear camera: ' + (chosen.label || chosen.id));
-      tiers.push({ label: 'deviceId + 1280x720', cameraId: chosen.id,
-                   config: { videoConstraints: { deviceId: { exact: chosen.id }, width: { ideal: 1280 }, height: { ideal: 720 } } } });
-      tiers.push({ label: 'deviceId plain', cameraId: chosen.id, config: {} });
-    }
-  }catch(e){
-    diag('Camera enumeration skipped: ' + (e && (e.message || e.name || e)));
-  }
-
-  tiers.push({ label: 'facingMode "user"', cameraId: { facingMode: "user" }, config: {} });
-  return tiers;
-}
-
-startBtn.addEventListener('click', async () => {
+async function startScan(){
   clearStatus();
-  diagLines = [];
-  showDiagnostics();   // visible from the START, not only after a failure — otherwise
-                       // a hang during startup shows the user nothing at all
+  hideRescan();
   viewportIdle.innerHTML = 'STARTING CAMERA…';
-  setStatus('Starting camera…');
 
   if (typeof Html5Qrcode === 'undefined'){
-    setStatus('Scanner library failed to load (no internet, or a blocker stopped the CDN). Use manual entry or a photo instead.', true);
+    setStatus('Scanner library failed to load — check your connection, or type the barcode below.', true);
     return;
   }
   if (!window.isSecureContext){
-    diag('WARNING: not a secure context (needs https:// or localhost) — camera will be refused.');
-  }
-  const formats = retailBarcodeFormats();
-  diag('Retail formats: ' + (formats ? formats.length : 'ALL (fallback)'));
-  diag('Native BarcodeDetector: ' + ('BarcodeDetector' in window ? 'yes (fast)' : 'no (JS/WASM decode)'));
-
-  const tiers = await buildCameraTiers();
-  let started = false, lastErr = null;
-
-  for (const tier of tiers){
-    try{
-      diag('Trying: ' + tier.label + '…');
-      html5QrCode = new Html5Qrcode("reader", {
-        formatsToSupport: formats,
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        verbose: false
-      });
-      scannerCard.classList.add('scanning');
-
-      await withTimeout(html5QrCode.start(
-        tier.cameraId,
-        Object.assign({ fps: 10, qrbox: wideScanBox }, tier.config),
-        (decodedText, result) => {
-          const fmt = (result && result.result && result.result.format && result.result.format.formatName) || '';
-          diag('DECODED: ' + decodedText + (fmt ? ' (' + fmt + ')' : ''));
-          clearScanTimeout();
-          document.getElementById('barcodeInput').value = decodedText;
-          lookupBarcode(decodedText);
-          stopScan();
-        },
-        () => { /* per-frame decode misses are normal — ignore */ }
-      ), 8000, 'camera start (' + tier.label + ')');
-
-      started = true;
-      diag('STARTED on: ' + tier.label);
-      reportActualVideoTrack();
-      break;
-
-    }catch(err){
-      lastErr = err;
-      diag('  failed: ' + (err && err.name ? err.name + ' — ' : '') + (err && err.message ? err.message : err));
-      try{ if (html5QrCode) await html5QrCode.clear(); }catch(e){}
-      html5QrCode = null;
-      scannerCard.classList.remove('scanning');
-    }
-  }
-
-  if (!started){
-    const name = lastErr && lastErr.name;
-    let msg;
-    if (name === 'NotAllowedError')           msg = 'Camera permission was denied. Allow camera access for this site, then tap Start again.';
-    else if (name === 'NotFoundError')        msg = 'No camera found on this device.';
-    else if (name === 'NotReadableError')     msg = 'The camera is in use by another app. Close other camera apps and try again.';
-    else if (name === 'OverconstrainedError') msg = 'This camera rejected every configuration tried.';
-    else if (!window.isSecureContext)         msg = 'Camera needs https:// (or localhost) — it will not work over file://.';
-    else                                      msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
-    viewportIdle.innerHTML = 'CAMERA UNAVAILABLE<br>use "Photo of a barcode" below instead';
-    setStatus(msg + ' Try the barcode-photo option below, or type the number.', true);
-    showDiagnostics();
+    setStatus('Camera needs https:// (or localhost). Over file:// it will not work — type the barcode below instead.', true);
     return;
   }
 
-  startBtn.style.display = 'none';
-  stopBtn.style.display = 'block';
-  startScanTimeout();
-});
-
-// Reports what the camera ACTUALLY gave us, which is often not what was requested.
-// A low actual resolution is the most common reason 1D barcodes won't resolve.
-function reportActualVideoTrack(){
   try{
-    const video = document.querySelector('#reader video');
-    if (!video || !video.srcObject) { diag('No video element found.'); return; }
-    const track = video.srcObject.getVideoTracks()[0];
-    if (!track){ diag('No video track.'); return; }
-    const s = track.getSettings ? track.getSettings() : {};
-    diag('Actual video: ' + (s.width || '?') + 'x' + (s.height || '?') +
-         (s.facingMode ? ' facing=' + s.facingMode : '') +
-         (s.frameRate ? ' @' + Math.round(s.frameRate) + 'fps' : ''));
-    if (s.width && s.width < 1000){
-      diag('NOTE: capture width under 1000px — small barcodes may not resolve. Move closer.');
-    }
-  }catch(e){
-    diag('Could not read video track settings: ' + e.message);
+    html5QrCode = new Html5Qrcode("reader", {
+      formatsToSupport: retailBarcodeFormats(),
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      verbose: false
+    });
+    scannerCard.classList.add('scanning');
+    setStatus('Point the camera at the barcode…');
+
+    await withTimeout(html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: wideScanBox },
+      (decodedText) => {
+        clearScanTimeout();
+        setStatus('Barcode read: ' + decodedText);
+        document.getElementById('barcodeInput').value = decodedText;
+        lookupBarcode(decodedText);
+        stopScan();
+      },
+      () => { /* per-frame decode misses are normal — ignore */ }
+    ), 8000, 'camera start');
+
+    startBtn.style.display = 'none';
+    stopBtn.style.display = 'block';
+    startScanTimeout();
+
+  }catch(err){
+    scannerCard.classList.remove('scanning');
+    html5QrCode = null;
+    const name = err && err.name;
+    let msg;
+    if (name === 'NotAllowedError')          msg = 'Camera permission denied. Allow camera access for this site, then try again.';
+    else if (name === 'NotFoundError')       msg = 'No camera found on this device.';
+    else if (name === 'NotReadableError')    msg = 'The camera is being used by another app. Close it and try again.';
+    else if (name === 'OverconstrainedError')msg = 'This device rejected the camera request.';
+    else                                     msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
+    viewportIdle.innerHTML = 'CAMERA UNAVAILABLE';
+    setStatus(msg + ' You can type the barcode below, or photograph the ingredients label.', true);
+    showRescan(false);
   }
 }
+
 
 // How long the live camera scan runs before giving up and releasing the camera.
 // Kept short deliberately — a scanner that spins indefinitely reads as broken, drains
@@ -913,16 +840,25 @@ const SCAN_TIMEOUT_MS = 10000;
 function startScanTimeout(){
   clearScanTimeout();
   scanTimeoutTimer = setTimeout(() => {
-    reportActualVideoTrack();
-    diag('No barcode decoded within ' + (SCAN_TIMEOUT_MS / 1000) + 's.');
     stopScan();
     scannerCard.classList.remove('scanning');
     viewportIdle.innerHTML =
-      "NO BARCODE DETECTED<br>hold it flat, fill the width of the guides, and keep the light even —<br>" +
-      "then tap Start again, type the number below, or use the photo option";
-    setStatus("Stopped after " + (SCAN_TIMEOUT_MS / 1000) + "s without a read. Tap Start to try again, enter the barcode manually, or photograph the ingredients label below.", true);
-    showDiagnostics();
+      "COULDN'T READ THE BARCODE<br>hold it flat and fill the width of the guides, in even light";
+    setStatus("No barcode read after " + (SCAN_TIMEOUT_MS / 1000) + "s. Try again, or type the number below.", true);
+    showRescan(true);
   }, SCAN_TIMEOUT_MS);
+}
+
+// Prompt to try again after a failed scan, so the next attempt is one tap away.
+function showRescan(showTips){
+  const panel = document.getElementById('rescanPanel');
+  if (!panel) return;
+  document.getElementById('rescanTips').style.display = showTips ? 'block' : 'none';
+  panel.classList.add('show');
+}
+function hideRescan(){
+  const panel = document.getElementById('rescanPanel');
+  if (panel) panel.classList.remove('show');
 }
 function clearScanTimeout(){
   if (scanTimeoutTimer){ clearTimeout(scanTimeoutTimer); scanTimeoutTimer = null; }
@@ -938,91 +874,6 @@ function stopScan(){
   scannerCard.classList.remove('scanning');
   startBtn.style.display = 'block';
   stopBtn.style.display = 'none';
-}
-
-// ---------- Decode a barcode from a still photo ----------
-// Live video decode is unreliable when the browser has no native BarcodeDetector
-// (the JS/WASM decoder gets a small, motion-blurred frame a few times a second).
-// A still photo is full-resolution and sharp, so this often succeeds where live
-// scanning fails outright.
-const barcodePhotoBtn = document.getElementById('barcodePhotoBtn');
-const barcodePhotoInput = document.getElementById('barcodePhotoInput');
-
-barcodePhotoBtn.addEventListener('click', () => barcodePhotoInput.click());
-
-barcodePhotoInput.addEventListener('change', async () => {
-  const file = barcodePhotoInput.files && barcodePhotoInput.files[0];
-  if (!file) return;
-
-  diagLines = [];
-  clearStatus();
-  setStatus('Reading barcode from photo…');
-  barcodePhotoBtn.disabled = true;
-
-  // Make sure any live scan is stopped first — the library can't do both at once.
-  try{ if (html5QrCode) await html5QrCode.stop(); }catch(e){}
-  try{ if (html5QrCode) await html5QrCode.clear(); }catch(e){}
-  html5QrCode = null;
-  scannerCard.classList.remove('scanning');
-  startBtn.style.display = 'block';
-  stopBtn.style.display = 'none';
-
-  const formats = retailBarcodeFormats();
-  let decoded = null;
-
-  // Pass 1: the photo as taken. Pass 2: a 2x upscaled copy, which sometimes gives
-  // the decoder enough pixel detail on a small or distant barcode.
-  const attempts = [
-    { label: 'original photo', transform: null },
-    { label: '2x upscaled',    transform: 2 },
-  ];
-
-  for (const attempt of attempts){
-    let scanner = null;
-    try{
-      diag('Decoding: ' + attempt.label + '…');
-      const input = attempt.transform ? await upscaleImageFile(file, attempt.transform) : file;
-      scanner = new Html5Qrcode("reader", { formatsToSupport: formats, verbose: false });
-      // showImage=false keeps the library from painting the photo into the viewport
-      decoded = await scanner.scanFile(input, false);
-      diag('DECODED: ' + decoded);
-      break;
-    }catch(err){
-      diag('  no read: ' + (err && err.message ? err.message : err));
-    }finally{
-      try{ if (scanner) await scanner.clear(); }catch(e){}
-    }
-  }
-
-  barcodePhotoBtn.disabled = false;
-  barcodePhotoInput.value = '';
-
-  if (decoded){
-    document.getElementById('barcodeInput').value = decoded;
-    lookupBarcode(decoded);
-  }else{
-    setStatus('No barcode found in that photo. Fill the frame with just the barcode, hold steady, avoid glare — or type the number below.', true);
-    showDiagnostics();
-  }
-});
-
-// Scales an image up by a factor, which can help the decoder resolve thin bars.
-async function upscaleImageFile(file, factor){
-  const img = await new Promise((resolve, reject) => {
-    const im = new Image();
-    im.onload = () => resolve(im);
-    im.onerror = () => reject(new Error('could not read image'));
-    im.src = URL.createObjectURL(file);
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.min(img.naturalWidth * factor, 4000);
-  canvas.height = Math.min(img.naturalHeight * factor, 4000);
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-  return new File([blob], 'upscaled.png', { type: 'image/png' });
 }
 
 // ---------- Photo-of-label OCR flow ----------
