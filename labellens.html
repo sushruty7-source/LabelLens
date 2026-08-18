@@ -432,7 +432,7 @@
   </div>
 
   <footer>
-    DATA: Open Food Facts · IARC Monographs (WHO) · prototype build<br>
+    DATA: Open Food Facts · Open Beauty Facts · IARC Monographs (WHO) · prototype build<br>
     <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span><br>
     <span id="tableSourceNote" style="opacity:.8">Reference table: loading…</span>
   </footer>
@@ -549,16 +549,30 @@ function setStatus(msg, isError){
 }
 function clearStatus(){ statusEl.classList.remove('show'); }
 
-// Product data source — Open Food Facts only.
+// Product data sources — the Open ___ Facts family (one nonprofit, one API shape,
+// free and keyless, and both return real parsed ingredient lists).
 //
-// Single source by design: free, keyless, no API key to leak in a public static app,
-// and it returns a real parsed ingredient list (which general barcode/commerce APIs
-// like UPCitemdb or Go-UPC do not — they index names and images only, so a "hit" from
-// one of them can't be classified).
+//   Food Facts   → groceries
+//   Beauty Facts → cosmetics / personal care  (shampoo, lotion, makeup)
 //
-// Anything Open Food Facts doesn't have is handled by the photo-OCR path, which reads
-// the ingredients straight off the label and doesn't depend on any database at all.
-const OPEN_FOOD_FACTS_BASE = "https://world.openfoodfacts.org/api/v2/product/";
+// Beauty Facts matters here specifically because the carcinogen table carries several
+// cosmetics entries — talc, parabens, formaldehyde-releasers, coal tar — that would
+// otherwise never get matched, since groceries alone never surface those ingredients.
+//
+// Open Products Facts was removed: it covers general household goods (electronics,
+// stationery, hardware) where most records have no ingredient list at all, so it
+// mostly returned empty shells. Easy to re-add — one line in the array below.
+//
+// Deliberately excluded: general barcode/commerce APIs (UPCitemdb, Go-UPC, Barcode
+// Lookup). They index names and images but carry no ingredients, so a "hit" from one
+// can't be classified — it looks like an answer while saying nothing about contents.
+//
+// Queried in PARALLEL, not one after another, so adding sources doesn't add wait time:
+// total latency stays roughly the slowest single request rather than the sum of all.
+const OPEN_FACTS_SOURCES = [
+  { label: 'Open Food Facts',   base: 'https://world.openfoodfacts.org/api/v2/product/' },
+  { label: 'Open Beauty Facts', base: 'https://world.openbeautyfacts.org/api/v2/product/' },
+];
 const LOOKUP_TIMEOUT_MS = 6000;
 
 async function fetchWithTimeout(url, timeoutMs){
@@ -571,21 +585,44 @@ async function fetchWithTimeout(url, timeoutMs){
   }
 }
 
-async function tryOpenFoodFacts(code){
+async function checkOpenFactsSource(src, code){
   try{
-    const res = await fetchWithTimeout(`${OPEN_FOOD_FACTS_BASE}${encodeURIComponent(code)}.json`, LOOKUP_TIMEOUT_MS);
+    const res = await fetchWithTimeout(`${src.base}${encodeURIComponent(code)}.json`, LOOKUP_TIMEOUT_MS);
     if (!res.ok) return null;
     const data = await res.json();
-    // NOTE: Open Food Facts returns HTTP 200 even for a barcode it doesn't have —
-    // the miss is signalled by status:0 in the body, so checking res.ok alone would
-    // silently treat "not found" as a successful empty result.
+    // NOTE: these APIs return HTTP 200 even for a barcode they don't have — the miss
+    // is signalled by status:0 in the body, so checking res.ok alone would silently
+    // treat "not found" as a successful empty result.
     if (data.status === 1 && data.product){
-      return { product: data.product, sourceLabel: 'Open Food Facts' };
+      return { product: data.product, sourceLabel: src.label };
     }
   }catch(e){
-    // timeout, network hiccup, or the server is down — treated as no match
+    // timeout, network hiccup, or that server is down — treated as no match
   }
   return null;
+}
+
+// Does this product record actually carry an ingredient list? A source can return a
+// match that is just a name and image with no ingredients recorded, which is useless
+// for classification — so results are checked for real content, not just presence.
+function hasIngredients(product){
+  if (!product) return false;
+  if (Array.isArray(product.ingredients) && product.ingredients.length) return true;
+  return typeof product.ingredients_text === 'string' && product.ingredients_text.trim().length > 1;
+}
+
+async function tryOpenFacts(code){
+  const results = await Promise.all(
+    OPEN_FACTS_SOURCES.map(src => checkOpenFactsSource(src, code))
+  );
+  const found = results.filter(r => r !== null);
+  if (!found.length) return null;
+
+  // Prefer a source that actually has ingredients, keeping list order (Food > Beauty)
+  // as the tie-break among those. Strict source order alone would let a bare record —
+  // name and image but no ingredients — beat one carrying the full list, which is the
+  // opposite of what this app needs.
+  return found.find(r => hasIngredients(r.product)) || found[0];
 }
 
 // Simple in-memory cache so re-scanning the same barcode in one session is instant —
@@ -604,11 +641,11 @@ async function lookupBarcode(code){
     return;
   }
 
-  setStatus('Looking up ' + code + ' in Open Food Facts…');
+  setStatus('Looking up ' + code + ' across ingredient databases…');
   try{
     const tablePromise = tableReady ? Promise.resolve() : loadReferenceTable();
     const [offResult] = await Promise.all([
-      tryOpenFoodFacts(code),
+      tryOpenFacts(code),
       tablePromise
     ]);
 
@@ -624,7 +661,7 @@ async function lookupBarcode(code){
       return;
     }
 
-    setStatus("Not found in Open Food Facts — use the photo option below to read the label directly.", true);
+    setStatus("Not found in Open Food Facts or Open Beauty Facts — use the photo option below to read the label directly.", true);
   }catch(err){
     setStatus('Lookup failed — network issue. ' + err.message, true);
   }
