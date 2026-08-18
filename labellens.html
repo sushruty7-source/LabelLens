@@ -695,7 +695,7 @@ document.querySelectorAll('.sample-chip').forEach(chip => {
 
 // ---------- Camera scanning (graceful fallback if blocked) ----------
 let html5QrCode = null;
-let scanHintTimer = null;
+let scanTimeoutTimer = null;
 const startBtn = document.getElementById('startScanBtn');
 const stopBtn = document.getElementById('stopScanBtn');
 const viewportIdle = document.getElementById('viewportIdle');
@@ -728,6 +728,9 @@ function wideScanBox(viewfinderWidth, viewfinderHeight){
 }
 
 startBtn.addEventListener('click', async () => {
+  // Clear anything left over from a previous timed-out or failed attempt
+  clearStatus();
+  viewportIdle.innerHTML = 'SCANNING…<br>hold the barcode flat inside the guides';
   try{
     html5QrCode = new Html5Qrcode("reader", {
       formatsToSupport: retailBarcodeFormats(),
@@ -753,7 +756,7 @@ startBtn.addEventListener('click', async () => {
         }
       },
       (decodedText) => {
-        clearScanHint();
+        clearScanTimeout();
         document.getElementById('barcodeInput').value = decodedText;
         lookupBarcode(decodedText);
         stopScan();
@@ -763,7 +766,7 @@ startBtn.addEventListener('click', async () => {
 
     startBtn.style.display = 'none';
     stopBtn.style.display = 'block';
-    startScanHint();
+    startScanTimeout();
 
   }catch(err){
     scannerCard.classList.remove('scanning');
@@ -772,22 +775,31 @@ startBtn.addEventListener('click', async () => {
   }
 });
 
-// If nothing decodes within a reasonable window, say so rather than letting the
-// laser animation spin forever with no explanation — silence reads as "broken".
-function startScanHint(){
-  clearScanHint();
-  scanHintTimer = setTimeout(() => {
-    setStatus('Still scanning… hold the barcode flat, fill the width of the box, and give it good light. No luck? Type the number below or use the photo option.', true);
-  }, 12000);
+// How long the live camera scan runs before giving up and releasing the camera.
+// Kept short deliberately — a scanner that spins indefinitely reads as broken, drains
+// battery, and holds the camera open. Raise this if barcodes need longer to acquire.
+const SCAN_TIMEOUT_MS = 5000;
+
+// Auto-stop the scan after SCAN_TIMEOUT_MS rather than running forever.
+function startScanTimeout(){
+  clearScanTimeout();
+  scanTimeoutTimer = setTimeout(() => {
+    stopScan();
+    scannerCard.classList.remove('scanning');
+    viewportIdle.innerHTML =
+      "NO BARCODE DETECTED<br>hold it flat, fill the width of the guides, and keep the light even —<br>" +
+      "then tap Start again, type the number below, or use the photo option";
+    setStatus("Stopped after " + (SCAN_TIMEOUT_MS / 1000) + "s without a read. Tap Start to try again, enter the barcode manually, or photograph the ingredients label below.", true);
+  }, SCAN_TIMEOUT_MS);
 }
-function clearScanHint(){
-  if (scanHintTimer){ clearTimeout(scanHintTimer); scanHintTimer = null; }
+function clearScanTimeout(){
+  if (scanTimeoutTimer){ clearTimeout(scanTimeoutTimer); scanTimeoutTimer = null; }
 }
 
-stopBtn.addEventListener('click', stopScan);
+stopBtn.addEventListener('click', () => stopScan());
 
 function stopScan(){
-  clearScanHint();
+  clearScanTimeout();
   if (html5QrCode){
     html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
   }
