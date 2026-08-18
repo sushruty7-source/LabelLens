@@ -117,6 +117,10 @@
     padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
   }
 
+  .barcode-photo-row{
+    padding:0 16px 14px; border-top:1px solid var(--line); padding-top:14px;
+  }
+
   /* Diagnostics — hidden until a scan fails, then shows exactly what the camera did */
   .diag{ display:none; border-top:1px solid var(--line); padding:12px 16px; }
   .diag.show{ display:block; }
@@ -340,6 +344,11 @@
     <div class="scanner-controls">
       <button class="btn-primary" id="startScanBtn">Start camera scan</button>
       <button class="btn-ghost" id="stopScanBtn" style="display:none;">Stop</button>
+    </div>
+    <div class="barcode-photo-row">
+      <button class="btn-ghost" id="barcodePhotoBtn" style="width:100%;">📷 Photo of a barcode (more reliable)</button>
+      <input type="file" id="barcodePhotoInput" accept="image/*" capture="environment" style="display:none;">
+      <p class="photo-hint" style="margin:8px 0 0;">Decodes a still photo at full resolution — usually works when live scanning won't.</p>
     </div>
     <div class="diag" id="diagPanel">
       <div class="diag-head">Scanner diagnostics</div>
@@ -744,30 +753,41 @@ function wideScanBox(viewfinderWidth, viewfinderHeight){
   return { width, height };
 }
 
-// Progressive constraint tiers. Previous version passed BOTH a {facingMode} camera
-// selector AND a videoConstraints block, which html5-qrcode treats as conflicting, and
-// included advanced:[{focusMode:"continuous"}] — an unsupported "advanced" constraint
-// makes some devices reject getUserMedia outright with OverconstrainedError. Either
-// issue can stop the camera from ever delivering usable frames, which looks exactly
-// like "detection is failing". These tiers start ideal and degrade to something that
-// works essentially everywhere.
-const CAMERA_TIERS = [
-  { label: 'rear 1920x1080', constraints: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
-  { label: 'rear 1280x720',  constraints: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-  { label: 'rear default',   constraints: { facingMode: { ideal: 'environment' } } },
-  { label: 'any camera',     constraints: { } },
-];
+// html5-qrcode validates the FIRST argument strictly:
+//   • a camera ID string, or
+//   • an object with EXACTLY ONE key
+//   • and facingMode accepts only a plain string or {exact:"..."} — NOT {ideal:"..."}
+// The previous tiers violated all three rules, so the camera never started at all.
+// Resolution hints belong in the SECOND argument (videoConstraints), never the first.
+//
+// Preferred path: enumerate cameras and pass a deviceId string, which is unambiguous
+// and sidesteps facingMode quirks across browsers.
+async function buildCameraTiers(){
+  const tiers = [];
+  try{
+    const cams = await Html5Qrcode.getCameras();
+    diag('Cameras found: ' + cams.length);
+    cams.forEach((c, i) => diag('  [' + i + '] ' + (c.label || '(no label)')));
 
-let diagLines = [];
-function diag(msg){
-  diagLines.push(msg);
-  const el = document.getElementById('diagOutput');
-  if (el){ el.textContent = diagLines.join('\n'); }
-  console.log('[LabelLens scan] ' + msg);
-}
-function showDiagnostics(){
-  const p = document.getElementById('diagPanel');
-  if (p) p.classList.add('show');
+    const rear = cams.find(c => /back|rear|environment/i.test(c.label || ''));
+    const chosen = rear || cams[cams.length - 1]; // last is usually the rear camera
+    if (chosen){
+      diag('Chose camera: ' + (chosen.label || chosen.id));
+      tiers.push({ label: 'deviceId + 1920x1080', cameraId: chosen.id,
+                   config: { videoConstraints: { deviceId: { exact: chosen.id }, width: { ideal: 1920 }, height: { ideal: 1080 } } } });
+      tiers.push({ label: 'deviceId + 1280x720', cameraId: chosen.id,
+                   config: { videoConstraints: { deviceId: { exact: chosen.id }, width: { ideal: 1280 }, height: { ideal: 720 } } } });
+      tiers.push({ label: 'deviceId plain', cameraId: chosen.id, config: {} });
+    }
+  }catch(e){
+    diag('getCameras() failed: ' + (e && (e.name || e.message || e)));
+  }
+
+  // Fallbacks using only the valid single-key / string forms
+  tiers.push({ label: 'facingMode "environment"',       cameraId: { facingMode: "environment" }, config: {} });
+  tiers.push({ label: 'facingMode exact environment',   cameraId: { facingMode: { exact: "environment" } }, config: {} });
+  tiers.push({ label: 'facingMode "user"',              cameraId: { facingMode: "user" }, config: {} });
+  return tiers;
 }
 
 startBtn.addEventListener('click', async () => {
@@ -775,24 +795,23 @@ startBtn.addEventListener('click', async () => {
   diagLines = [];
   viewportIdle.innerHTML = 'STARTING CAMERA…';
 
-  // Environment checks first — these explain most "nothing happens" cases.
   if (typeof Html5Qrcode === 'undefined'){
-    setStatus('Scanner library failed to load (no internet, or a blocker stopped the CDN). Use manual entry or the photo option.', true);
+    setStatus('Scanner library failed to load (no internet, or a blocker stopped the CDN). Use manual entry or a photo instead.', true);
     return;
   }
   if (!window.isSecureContext){
-    diag('WARNING: page is not a secure context (needs https:// or localhost). Camera access will be refused.');
+    diag('WARNING: not a secure context (needs https:// or localhost) — camera will be refused.');
   }
   const formats = retailBarcodeFormats();
-  diag('Html5QrcodeSupportedFormats available: ' + (formats ? 'yes (' + formats.length + ' retail formats)' : 'NO — falling back to all formats, slower'));
-  diag('Native BarcodeDetector: ' + ('BarcodeDetector' in window ? 'yes (fast path)' : 'no (JS/WASM decode, slower)'));
+  diag('Retail formats: ' + (formats ? formats.length : 'ALL (fallback)'));
+  diag('Native BarcodeDetector: ' + ('BarcodeDetector' in window ? 'yes (fast)' : 'no (JS/WASM decode)'));
 
-  let started = false;
-  let lastErr = null;
+  const tiers = await buildCameraTiers();
+  let started = false, lastErr = null;
 
-  for (const tier of CAMERA_TIERS){
+  for (const tier of tiers){
     try{
-      diag('Trying camera: ' + tier.label + '…');
+      diag('Trying: ' + tier.label + '…');
       html5QrCode = new Html5Qrcode("reader", {
         formatsToSupport: formats,
         experimentalFeatures: { useBarCodeDetectorIfSupported: true },
@@ -801,27 +820,27 @@ startBtn.addEventListener('click', async () => {
       scannerCard.classList.add('scanning');
 
       await html5QrCode.start(
-        tier.constraints,           // camera selection — specified ONCE, here only
-        { fps: 15, qrbox: wideScanBox },
+        tier.cameraId,
+        Object.assign({ fps: 10, qrbox: wideScanBox }, tier.config),
         (decodedText, result) => {
-          const fmt = (result && result.result && result.result.format && result.result.format.formatName) || 'unknown format';
-          diag('DECODED: ' + decodedText + ' (' + fmt + ')');
+          const fmt = (result && result.result && result.result.format && result.result.format.formatName) || '';
+          diag('DECODED: ' + decodedText + (fmt ? ' (' + fmt + ')' : ''));
           clearScanTimeout();
           document.getElementById('barcodeInput').value = decodedText;
           lookupBarcode(decodedText);
           stopScan();
         },
-        () => { /* per-frame decode misses are normal and constant — ignore */ }
+        () => { /* per-frame decode misses are normal — ignore */ }
       );
 
       started = true;
-      diag('Camera started on tier: ' + tier.label);
+      diag('STARTED on: ' + tier.label);
       reportActualVideoTrack();
       break;
 
     }catch(err){
       lastErr = err;
-      diag('  failed: ' + (err && (err.name || err)) + (err && err.message ? ' — ' + err.message : ''));
+      diag('  failed: ' + (err && err.name ? err.name + ' — ' : '') + (err && err.message ? err.message : err));
       try{ if (html5QrCode) await html5QrCode.clear(); }catch(e){}
       html5QrCode = null;
       scannerCard.classList.remove('scanning');
@@ -831,14 +850,14 @@ startBtn.addEventListener('click', async () => {
   if (!started){
     const name = lastErr && lastErr.name;
     let msg;
-    if (name === 'NotAllowedError')        msg = 'Camera permission was denied. Allow camera access for this site in your browser settings, then tap Start again.';
-    else if (name === 'NotFoundError')     msg = 'No camera found on this device.';
-    else if (name === 'NotReadableError')  msg = 'The camera is in use by another app. Close other camera apps and try again.';
-    else if (name === 'OverconstrainedError') msg = 'This camera rejected every resolution we tried.';
-    else if (!window.isSecureContext)      msg = 'Camera needs a secure connection — open this page over https:// (or localhost), not file://.';
-    else                                   msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
-    viewportIdle.innerHTML = 'CAMERA UNAVAILABLE<br>use the photo option below — it opens your phone\'s own camera app instead';
-    setStatus(msg + ' You can still type the barcode below or photograph the label.', true);
+    if (name === 'NotAllowedError')           msg = 'Camera permission was denied. Allow camera access for this site, then tap Start again.';
+    else if (name === 'NotFoundError')        msg = 'No camera found on this device.';
+    else if (name === 'NotReadableError')     msg = 'The camera is in use by another app. Close other camera apps and try again.';
+    else if (name === 'OverconstrainedError') msg = 'This camera rejected every configuration tried.';
+    else if (!window.isSecureContext)         msg = 'Camera needs https:// (or localhost) — it will not work over file://.';
+    else                                      msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
+    viewportIdle.innerHTML = 'CAMERA UNAVAILABLE<br>use "Photo of a barcode" below instead';
+    setStatus(msg + ' Try the barcode-photo option below, or type the number.', true);
     showDiagnostics();
     return;
   }
@@ -902,6 +921,91 @@ function stopScan(){
   scannerCard.classList.remove('scanning');
   startBtn.style.display = 'block';
   stopBtn.style.display = 'none';
+}
+
+// ---------- Decode a barcode from a still photo ----------
+// Live video decode is unreliable when the browser has no native BarcodeDetector
+// (the JS/WASM decoder gets a small, motion-blurred frame a few times a second).
+// A still photo is full-resolution and sharp, so this often succeeds where live
+// scanning fails outright.
+const barcodePhotoBtn = document.getElementById('barcodePhotoBtn');
+const barcodePhotoInput = document.getElementById('barcodePhotoInput');
+
+barcodePhotoBtn.addEventListener('click', () => barcodePhotoInput.click());
+
+barcodePhotoInput.addEventListener('change', async () => {
+  const file = barcodePhotoInput.files && barcodePhotoInput.files[0];
+  if (!file) return;
+
+  diagLines = [];
+  clearStatus();
+  setStatus('Reading barcode from photo…');
+  barcodePhotoBtn.disabled = true;
+
+  // Make sure any live scan is stopped first — the library can't do both at once.
+  try{ if (html5QrCode) await html5QrCode.stop(); }catch(e){}
+  try{ if (html5QrCode) await html5QrCode.clear(); }catch(e){}
+  html5QrCode = null;
+  scannerCard.classList.remove('scanning');
+  startBtn.style.display = 'block';
+  stopBtn.style.display = 'none';
+
+  const formats = retailBarcodeFormats();
+  let decoded = null;
+
+  // Pass 1: the photo as taken. Pass 2: a 2x upscaled copy, which sometimes gives
+  // the decoder enough pixel detail on a small or distant barcode.
+  const attempts = [
+    { label: 'original photo', transform: null },
+    { label: '2x upscaled',    transform: 2 },
+  ];
+
+  for (const attempt of attempts){
+    let scanner = null;
+    try{
+      diag('Decoding: ' + attempt.label + '…');
+      const input = attempt.transform ? await upscaleImageFile(file, attempt.transform) : file;
+      scanner = new Html5Qrcode("reader", { formatsToSupport: formats, verbose: false });
+      // showImage=false keeps the library from painting the photo into the viewport
+      decoded = await scanner.scanFile(input, false);
+      diag('DECODED: ' + decoded);
+      break;
+    }catch(err){
+      diag('  no read: ' + (err && err.message ? err.message : err));
+    }finally{
+      try{ if (scanner) await scanner.clear(); }catch(e){}
+    }
+  }
+
+  barcodePhotoBtn.disabled = false;
+  barcodePhotoInput.value = '';
+
+  if (decoded){
+    document.getElementById('barcodeInput').value = decoded;
+    lookupBarcode(decoded);
+  }else{
+    setStatus('No barcode found in that photo. Fill the frame with just the barcode, hold steady, avoid glare — or type the number below.', true);
+    showDiagnostics();
+  }
+});
+
+// Scales an image up by a factor, which can help the decoder resolve thin bars.
+async function upscaleImageFile(file, factor){
+  const img = await new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = () => reject(new Error('could not read image'));
+    im.src = URL.createObjectURL(file);
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.min(img.naturalWidth * factor, 4000);
+  canvas.height = Math.min(img.naturalHeight * factor, 4000);
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  return new File([blob], 'upscaled.png', { type: 'image/png' });
 }
 
 // ---------- Photo-of-label OCR flow ----------
