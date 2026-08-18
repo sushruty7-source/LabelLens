@@ -116,6 +116,19 @@
   .scanner-controls{
     padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
   }
+
+  /* Diagnostics — hidden until a scan fails, then shows exactly what the camera did */
+  .diag{ display:none; border-top:1px solid var(--line); padding:12px 16px; }
+  .diag.show{ display:block; }
+  .diag-head{
+    font-family:var(--mono); font-size:10px; text-transform:uppercase;
+    letter-spacing:0.08em; color:var(--text-dim); margin-bottom:8px;
+  }
+  .diag pre{
+    margin:0; font-family:var(--mono); font-size:10.5px; line-height:1.6;
+    color:var(--text-dim); white-space:pre-wrap; word-break:break-word;
+    max-height:180px; overflow-y:auto;
+  }
   button{
     font-family: var(--display); font-weight:600; font-size:14px;
     border-radius:8px; border:1px solid var(--line); cursor:pointer;
@@ -327,6 +340,10 @@
     <div class="scanner-controls">
       <button class="btn-primary" id="startScanBtn">Start camera scan</button>
       <button class="btn-ghost" id="stopScanBtn" style="display:none;">Stop</button>
+    </div>
+    <div class="diag" id="diagPanel">
+      <div class="diag-head">Scanner diagnostics</div>
+      <pre id="diagOutput"></pre>
     </div>
   </div>
 
@@ -727,53 +744,129 @@ function wideScanBox(viewfinderWidth, viewfinderHeight){
   return { width, height };
 }
 
+// Progressive constraint tiers. Previous version passed BOTH a {facingMode} camera
+// selector AND a videoConstraints block, which html5-qrcode treats as conflicting, and
+// included advanced:[{focusMode:"continuous"}] — an unsupported "advanced" constraint
+// makes some devices reject getUserMedia outright with OverconstrainedError. Either
+// issue can stop the camera from ever delivering usable frames, which looks exactly
+// like "detection is failing". These tiers start ideal and degrade to something that
+// works essentially everywhere.
+const CAMERA_TIERS = [
+  { label: 'rear 1920x1080', constraints: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } },
+  { label: 'rear 1280x720',  constraints: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+  { label: 'rear default',   constraints: { facingMode: { ideal: 'environment' } } },
+  { label: 'any camera',     constraints: { } },
+];
+
+let diagLines = [];
+function diag(msg){
+  diagLines.push(msg);
+  const el = document.getElementById('diagOutput');
+  if (el){ el.textContent = diagLines.join('\n'); }
+  console.log('[LabelLens scan] ' + msg);
+}
+function showDiagnostics(){
+  const p = document.getElementById('diagPanel');
+  if (p) p.classList.add('show');
+}
+
 startBtn.addEventListener('click', async () => {
-  // Clear anything left over from a previous timed-out or failed attempt
   clearStatus();
-  viewportIdle.innerHTML = 'SCANNING…<br>hold the barcode flat inside the guides';
-  try{
-    html5QrCode = new Html5Qrcode("reader", {
-      formatsToSupport: retailBarcodeFormats(),
-      // Uses the browser's native BarcodeDetector where available (Chrome on Android,
-      // and newer desktop Chrome). Dramatically faster than the JS/WASM decode path.
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      verbose: false
-    });
-    scannerCard.classList.add('scanning');
+  diagLines = [];
+  viewportIdle.innerHTML = 'STARTING CAMERA…';
 
-    await html5QrCode.start(
-      { facingMode: "environment" },
-      {
-        fps: 15,
-        qrbox: wideScanBox,
-        // 1D decoding needs enough horizontal pixels across the bars — the default
-        // capture resolution is often too low to resolve a small barcode reliably.
-        videoConstraints: {
-          facingMode: "environment",
-          width:  { ideal: 1920 },
-          height: { ideal: 1080 },
-          advanced: [{ focusMode: "continuous" }]
-        }
-      },
-      (decodedText) => {
-        clearScanTimeout();
-        document.getElementById('barcodeInput').value = decodedText;
-        lookupBarcode(decodedText);
-        stopScan();
-      },
-      () => { /* per-frame decode misses are normal and constant — ignore */ }
-    );
-
-    startBtn.style.display = 'none';
-    stopBtn.style.display = 'block';
-    startScanTimeout();
-
-  }catch(err){
-    scannerCard.classList.remove('scanning');
-    viewportIdle.innerHTML = 'CAMERA BLOCKED HERE<br>if you\'re viewing this inside a preview/embedded window, open the page directly in your phone\'s browser (Safari/Chrome) — or use the photo-upload option below, which uses your phone\'s native camera app instead.';
-    setStatus('Live camera scan unavailable in this view — try the photo option below, or open this page directly in your browser.', true);
+  // Environment checks first — these explain most "nothing happens" cases.
+  if (typeof Html5Qrcode === 'undefined'){
+    setStatus('Scanner library failed to load (no internet, or a blocker stopped the CDN). Use manual entry or the photo option.', true);
+    return;
   }
+  if (!window.isSecureContext){
+    diag('WARNING: page is not a secure context (needs https:// or localhost). Camera access will be refused.');
+  }
+  const formats = retailBarcodeFormats();
+  diag('Html5QrcodeSupportedFormats available: ' + (formats ? 'yes (' + formats.length + ' retail formats)' : 'NO — falling back to all formats, slower'));
+  diag('Native BarcodeDetector: ' + ('BarcodeDetector' in window ? 'yes (fast path)' : 'no (JS/WASM decode, slower)'));
+
+  let started = false;
+  let lastErr = null;
+
+  for (const tier of CAMERA_TIERS){
+    try{
+      diag('Trying camera: ' + tier.label + '…');
+      html5QrCode = new Html5Qrcode("reader", {
+        formatsToSupport: formats,
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        verbose: false
+      });
+      scannerCard.classList.add('scanning');
+
+      await html5QrCode.start(
+        tier.constraints,           // camera selection — specified ONCE, here only
+        { fps: 15, qrbox: wideScanBox },
+        (decodedText, result) => {
+          const fmt = (result && result.result && result.result.format && result.result.format.formatName) || 'unknown format';
+          diag('DECODED: ' + decodedText + ' (' + fmt + ')');
+          clearScanTimeout();
+          document.getElementById('barcodeInput').value = decodedText;
+          lookupBarcode(decodedText);
+          stopScan();
+        },
+        () => { /* per-frame decode misses are normal and constant — ignore */ }
+      );
+
+      started = true;
+      diag('Camera started on tier: ' + tier.label);
+      reportActualVideoTrack();
+      break;
+
+    }catch(err){
+      lastErr = err;
+      diag('  failed: ' + (err && (err.name || err)) + (err && err.message ? ' — ' + err.message : ''));
+      try{ if (html5QrCode) await html5QrCode.clear(); }catch(e){}
+      html5QrCode = null;
+      scannerCard.classList.remove('scanning');
+    }
+  }
+
+  if (!started){
+    const name = lastErr && lastErr.name;
+    let msg;
+    if (name === 'NotAllowedError')        msg = 'Camera permission was denied. Allow camera access for this site in your browser settings, then tap Start again.';
+    else if (name === 'NotFoundError')     msg = 'No camera found on this device.';
+    else if (name === 'NotReadableError')  msg = 'The camera is in use by another app. Close other camera apps and try again.';
+    else if (name === 'OverconstrainedError') msg = 'This camera rejected every resolution we tried.';
+    else if (!window.isSecureContext)      msg = 'Camera needs a secure connection — open this page over https:// (or localhost), not file://.';
+    else                                   msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
+    viewportIdle.innerHTML = 'CAMERA UNAVAILABLE<br>use the photo option below — it opens your phone\'s own camera app instead';
+    setStatus(msg + ' You can still type the barcode below or photograph the label.', true);
+    showDiagnostics();
+    return;
+  }
+
+  startBtn.style.display = 'none';
+  stopBtn.style.display = 'block';
+  startScanTimeout();
 });
+
+// Reports what the camera ACTUALLY gave us, which is often not what was requested.
+// A low actual resolution is the most common reason 1D barcodes won't resolve.
+function reportActualVideoTrack(){
+  try{
+    const video = document.querySelector('#reader video');
+    if (!video || !video.srcObject) { diag('No video element found.'); return; }
+    const track = video.srcObject.getVideoTracks()[0];
+    if (!track){ diag('No video track.'); return; }
+    const s = track.getSettings ? track.getSettings() : {};
+    diag('Actual video: ' + (s.width || '?') + 'x' + (s.height || '?') +
+         (s.facingMode ? ' facing=' + s.facingMode : '') +
+         (s.frameRate ? ' @' + Math.round(s.frameRate) + 'fps' : ''));
+    if (s.width && s.width < 1000){
+      diag('NOTE: capture width under 1000px — small barcodes may not resolve. Move closer.');
+    }
+  }catch(e){
+    diag('Could not read video track settings: ' + e.message);
+  }
+}
 
 // How long the live camera scan runs before giving up and releasing the camera.
 // Kept short deliberately — a scanner that spins indefinitely reads as broken, drains
@@ -784,12 +877,15 @@ const SCAN_TIMEOUT_MS = 10000;
 function startScanTimeout(){
   clearScanTimeout();
   scanTimeoutTimer = setTimeout(() => {
+    reportActualVideoTrack();
+    diag('No barcode decoded within ' + (SCAN_TIMEOUT_MS / 1000) + 's.');
     stopScan();
     scannerCard.classList.remove('scanning');
     viewportIdle.innerHTML =
       "NO BARCODE DETECTED<br>hold it flat, fill the width of the guides, and keep the light even —<br>" +
       "then tap Start again, type the number below, or use the photo option";
     setStatus("Stopped after " + (SCAN_TIMEOUT_MS / 1000) + "s without a read. Tap Start to try again, enter the barcode manually, or photograph the ingredients label below.", true);
+    showDiagnostics();
   }, SCAN_TIMEOUT_MS);
 }
 function clearScanTimeout(){
