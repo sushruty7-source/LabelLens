@@ -18,9 +18,15 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<!-- ZXing: decodes 1D retail barcodes far more reliably than html5-qrcode's bundled
-     decoder, which matters because most phones lack a native BarcodeDetector. -->
-<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<!-- BarcodeDetector polyfill, backed by ZXing-C++ WebAssembly. iOS/WebKit has never
+     implemented the native Barcode Detection API and the iOS 17 feature flag broke in
+     iOS 18, so on iPhone this polyfill IS the scanner. On Android Chrome the native
+     implementation is used instead. The IIFE build registers both:
+       window.BarcodeDetector                     (polyfill — only if native is absent)
+       window.BarcodeDetectionAPI.BarcodeDetector (ponyfill — always the WASM one)
+     Having both lets us fall back to WASM if a native implementation exists but
+     doesn't support the retail formats we need. -->
+<script src="https://cdn.jsdelivr.net/npm/barcode-detector@3/dist/iife/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   :root{
@@ -727,39 +733,39 @@ const startBtn = document.getElementById('startScanBtn');
 const stopBtn = document.getElementById('stopScanBtn');
 const viewportIdle = document.getElementById('viewportIdle');
 
-// ---------- Barcode scanner (ZXing) ----------
-// Switched from html5-qrcode to ZXing because this device (like most) has no native
-// BarcodeDetector, and html5-qrcode's bundled fallback decoder is unreliable on 1D
-// retail barcodes. ZXing decodes the FULL video frame rather than a cropped "qrbox"
-// region, which also removes a whole class of "aimed at it but nothing happened" bugs.
+// ---------- Barcode scanner (BarcodeDetector + zxing-wasm polyfill) ----------
+// On Android Chrome the native BarcodeDetector is used. On iOS — where WebKit has
+// never shipped it, and the iOS 17 feature flag broke in iOS 18 — the polyfill
+// provides the same API backed by WebAssembly. Same code path either way.
 const scanVideo = document.getElementById('scanVideo');
-let zxingReader = null;
 let scanStream = null;
+let scanRafId = null;
+let scanning = false;
 
-function retailBarcodeFormats(){
-  if (typeof ZXing === 'undefined') return null;
-  const F = ZXing.BarcodeFormat;
-  return [
-    F.EAN_13,    // most global retail products
-    F.EAN_8,     // small packages
-    F.UPC_A,     // US retail
-    F.UPC_E,     // compressed US
-    F.UPC_EAN_EXTENSION,
-    F.CODE_128,  // some store-brand / private label
-    F.CODE_39,
-    F.ITF,       // cartons / cases
-  ];
-}
+// Retail formats only. Fewer formats per frame = faster decode, and these are what
+// actually appear on consumer packaging.
+const RETAIL_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
 
-function buildZXingReader(){
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, retailBarcodeFormats());
-  // TRY_HARDER spends more time per frame — worth it here, since a missed read costs
-  // the user far more than a few extra milliseconds of decoding.
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-  // Second arg is timeBetweenScansMillis (a NUMBER in @zxing/library — the options
-  // object form belongs to the separate @zxing/browser package). 100ms ≈ 10 scans/sec.
-  return new ZXing.BrowserMultiFormatReader(hints, 100);
+// The IIFE script tag loads synchronously before this code runs, so no readiness
+// dance is needed — but we still verify, in case the CDN was blocked.
+async function createDetector(){
+  const Native = window.BarcodeDetector;
+  const Wasm = window.BarcodeDetectionAPI && window.BarcodeDetectionAPI.BarcodeDetector;
+
+  // Prefer native only when it actually supports the retail formats we care about.
+  // A native implementation that can't read EAN/UPC is worse than the WASM one.
+  if (Native){
+    try{
+      const supported = await Native.getSupportedFormats();
+      const usable = RETAIL_FORMATS.filter(f => supported.includes(f));
+      if (usable.length){
+        return { detector: new Native({ formats: usable }), engine: 'native' };
+      }
+    }catch(e){ /* fall through to WASM */ }
+  }
+  if (Wasm) return { detector: new Wasm({ formats: RETAIL_FORMATS }), engine: 'wasm' };
+  if (Native) return { detector: new Native(), engine: 'native (all formats)' };
+  return null;
 }
 
 startBtn.addEventListener('click', () => startScan());
@@ -770,25 +776,22 @@ async function startScan(){
   hideRescan();
   viewportIdle.innerHTML = 'STARTING CAMERA…';
 
-  if (typeof ZXing === 'undefined'){
-    setStatus('Scanner library failed to load — check your connection, or type the barcode below.', true);
-    showRescan(false);
-    return;
-  }
-  if (typeof ZXing.BrowserMultiFormatReader !== 'function'){
-    setStatus('Scanner library loaded but is missing the camera reader — type the barcode below, or photograph the ingredients label.', true);
-    showRescan(false);
-    return;
-  }
   if (!window.isSecureContext){
     setStatus('Camera needs https:// (or localhost). Over file:// it will not work — type the barcode below instead.', true);
     showRescan(false);
     return;
   }
 
+  setStatus('Loading scanner…');
+  const built = await createDetector();
+  if (!built){
+    setStatus('Barcode scanner failed to load — check your connection, or type the barcode below.', true);
+    showRescan(false);
+    return;
+  }
+  console.log('[LabelLens] barcode engine: ' + built.engine);
+
   try{
-    // Request the camera ourselves so we control the constraints and can report the
-    // real failure reason, rather than having it buried inside a scanner library.
     scanStream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: 'environment' },
@@ -799,23 +802,16 @@ async function startScan(){
     });
 
     scanVideo.srcObject = scanStream;
+    // iOS needs these set for an inline autoplay to be allowed at all.
+    scanVideo.setAttribute('playsinline', '');
+    scanVideo.muted = true;
     await scanVideo.play();
 
     scannerCard.classList.add('scanning');
-    setStatus('Point the camera at the barcode…');
+    setStatus('Point the camera at the barcode… (' + built.engine + ')');
 
-    zxingReader = buildZXingReader();
-    zxingReader.decodeFromStream(scanStream, scanVideo, (result, err) => {
-      if (result){
-        const text = result.getText ? result.getText() : String(result);
-        clearScanTimeout();
-        setStatus('Barcode read: ' + text);
-        document.getElementById('barcodeInput').value = text;
-        lookupBarcode(text);
-        stopScan();
-      }
-      // err on most frames is a normal "nothing decoded in this frame" — ignore it
-    });
+    scanning = true;
+    runDetectLoop(built.detector);
 
     startBtn.style.display = 'none';
     stopBtn.style.display = 'block';
@@ -826,7 +822,7 @@ async function startScan(){
     scannerCard.classList.remove('scanning');
     const name = err && err.name;
     let msg;
-    if (name === 'NotAllowedError')           msg = 'Camera permission denied. Allow camera access for this site, then try again.';
+    if (name === 'NotAllowedError')           msg = 'Camera permission denied. In Safari: tap the "aA" icon in the address bar → Website Settings → Camera → Allow, then try again.';
     else if (name === 'NotFoundError')        msg = 'No camera found on this device.';
     else if (name === 'NotReadableError')     msg = 'The camera is being used by another app. Close it and try again.';
     else if (name === 'OverconstrainedError') msg = 'This device rejected the camera request.';
@@ -835,6 +831,37 @@ async function startScan(){
     setStatus(msg + ' You can type the barcode below, or photograph the ingredients label.', true);
     showRescan(false);
   }
+}
+
+// Detect on each animation frame. detect() is async, so the loop waits for each pass
+// to finish rather than stacking overlapping calls on a slow device.
+async function runDetectLoop(detector){
+  if (!scanning) return;
+
+  if (scanVideo.readyState >= 2 && scanVideo.videoWidth > 0){
+    try{
+      const codes = await detector.detect(scanVideo);
+      if (codes && codes.length){
+        const value = codes[0].rawValue;
+        if (value){
+          onBarcodeDecoded(value);
+          return;
+        }
+      }
+    }catch(e){
+      // Transient decode errors are normal per frame — keep going.
+    }
+  }
+
+  if (scanning) scanRafId = requestAnimationFrame(() => runDetectLoop(detector));
+}
+
+function onBarcodeDecoded(value){
+  clearScanTimeout();
+  setStatus('Barcode read: ' + value);
+  document.getElementById('barcodeInput').value = value;
+  lookupBarcode(value);
+  stopScan();
 }
 
 // Releasing the tracks explicitly matters — without it the camera indicator stays on
@@ -851,17 +878,14 @@ function stopCameraStream(){
 }
 
 function stopScan(){
+  scanning = false;
+  if (scanRafId){ cancelAnimationFrame(scanRafId); scanRafId = null; }
   clearScanTimeout();
-  if (zxingReader){
-    try{ zxingReader.reset(); }catch(e){}
-    zxingReader = null;
-  }
   stopCameraStream();
   scannerCard.classList.remove('scanning');
   startBtn.style.display = 'block';
   stopBtn.style.display = 'none';
 }
-
 // How long the live scan runs before giving up and releasing the camera.
 const SCAN_TIMEOUT_MS = 10000;
 
