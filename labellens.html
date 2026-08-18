@@ -18,7 +18,9 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<!-- ZXing: decodes 1D retail barcodes far more reliably than html5-qrcode's bundled
+     decoder, which matters because most phones lack a native BarcodeDetector. -->
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
   :root{
@@ -81,8 +83,10 @@
     display:flex; align-items:center; justify-content:center;
     overflow:hidden;
   }
-  #reader{width:100%; height:100%;}
-  #reader video{object-fit:cover; width:100%!important; height:100%!important;}
+  #reader{width:100%; height:100%; position:relative;}
+  /* 'contain', not 'cover' — cover CROPS the feed, so the user aims at a barcode that
+     is outside the frame actually being decoded. Letterboxing is the honest option. */
+  #reader video{object-fit:contain; width:100%; height:100%; display:block; background:#060a08;}
   .viewport-idle{
     text-align:center; color:var(--text-dim); font-family:var(--mono); font-size:12px;
     padding:20px; line-height:1.6;
@@ -330,7 +334,7 @@
 
   <div class="scanner-card" id="scannerCard">
     <div class="viewport" id="viewport">
-      <div id="reader"></div>
+      <div id="reader"><video id="scanVideo" playsinline muted></video></div>
       <div class="viewport-idle" id="viewportIdle">
         CAMERA OFF<br>tap "Start camera scan" — or enter a barcode manually below
       </div>
@@ -718,59 +722,46 @@ document.querySelectorAll('.sample-chip').forEach(chip => {
 });
 
 // ---------- Camera scanning (graceful fallback if blocked) ----------
-let html5QrCode = null;
 let scanTimeoutTimer = null;
 const startBtn = document.getElementById('startScanBtn');
 const stopBtn = document.getElementById('stopScanBtn');
 const viewportIdle = document.getElementById('viewportIdle');
 
-// Retail barcodes only. The default html5-qrcode config tries EVERY symbology
-// (QR, Aztec, DataMatrix, PDF417, and all 1D types) on every single frame, which
-// wastes most of the decode budget on formats that will never appear on a grocery
-// package — and makes detection feel like it's hanging. Restricting to the formats
-// actually printed on consumer products is the single biggest speed win here.
+// ---------- Barcode scanner (ZXing) ----------
+// Switched from html5-qrcode to ZXing because this device (like most) has no native
+// BarcodeDetector, and html5-qrcode's bundled fallback decoder is unreliable on 1D
+// retail barcodes. ZXing decodes the FULL video frame rather than a cropped "qrbox"
+// region, which also removes a whole class of "aimed at it but nothing happened" bugs.
+const scanVideo = document.getElementById('scanVideo');
+let zxingReader = null;
+let scanStream = null;
+
 function retailBarcodeFormats(){
-  if (typeof Html5QrcodeSupportedFormats === 'undefined') return undefined;
+  if (typeof ZXing === 'undefined') return null;
+  const F = ZXing.BarcodeFormat;
   return [
-    Html5QrcodeSupportedFormats.EAN_13,   // most global retail products
-    Html5QrcodeSupportedFormats.EAN_8,    // small packages
-    Html5QrcodeSupportedFormats.UPC_A,    // US retail
-    Html5QrcodeSupportedFormats.UPC_E,    // compressed US
-    Html5QrcodeSupportedFormats.UPC_EAN_EXTENSION,
-    Html5QrcodeSupportedFormats.CODE_128, // some store-brand/private label
+    F.EAN_13,    // most global retail products
+    F.EAN_8,     // small packages
+    F.UPC_A,     // US retail
+    F.UPC_E,     // compressed US
+    F.UPC_EAN_EXTENSION,
+    F.CODE_128,  // some store-brand / private label
+    F.CODE_39,
+    F.ITF,       // cartons / cases
   ];
 }
 
-// 1D barcodes are WIDE and SHORT. The previous 240x140 box was near-square (a QR
-// shape), so a barcode held naturally often didn't fit inside it — and html5-qrcode
-// only decodes what's inside the box. This sizes a wide box relative to the actual
-// viewport instead of hardcoding pixels that may exceed a narrow phone screen.
-function wideScanBox(viewfinderWidth, viewfinderHeight){
-  const width = Math.floor(Math.min(viewfinderWidth, viewfinderHeight * 2.2) * 0.85);
-  const height = Math.floor(Math.max(70, Math.min(width * 0.45, viewfinderHeight * 0.5)));
-  return { width, height };
+function buildZXingReader(){
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, retailBarcodeFormats());
+  // TRY_HARDER spends more time per frame — worth it here, since a missed read costs
+  // the user far more than a few extra milliseconds of decoding.
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  // Second arg is timeBetweenScansMillis (a NUMBER in @zxing/library — the options
+  // object form belongs to the separate @zxing/browser package). 100ms ≈ 10 scans/sec.
+  return new ZXing.BrowserMultiFormatReader(hints, 100);
 }
 
-// html5-qrcode validates the FIRST argument strictly:
-//   • a camera ID string, or
-//   • an object with EXACTLY ONE key
-//   • and facingMode accepts only a plain string or {exact:"..."} — NOT {ideal:"..."}
-// The previous tiers violated all three rules, so the camera never started at all.
-// Resolution hints belong in the SECOND argument (videoConstraints), never the first.
-//
-// Preferred path: enumerate cameras and pass a deviceId string, which is unambiguous
-// and sidesteps facingMode quirks across browsers.
-// Wraps a promise so a hung camera call can't freeze the UI with no way out.
-function withTimeout(promise, ms, label){
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms))
-  ]);
-}
-
-// Basic scanner: one camera request using the plain {facingMode:"environment"} form,
-// which is the shape html5-qrcode actually accepts. No enumeration, no tier ladder —
-// those added failure modes (hangs, invalid configs) without improving reads.
 startBtn.addEventListener('click', () => startScan());
 document.getElementById('rescanBtn').addEventListener('click', () => startScan());
 
@@ -779,64 +770,101 @@ async function startScan(){
   hideRescan();
   viewportIdle.innerHTML = 'STARTING CAMERA…';
 
-  if (typeof Html5Qrcode === 'undefined'){
+  if (typeof ZXing === 'undefined'){
     setStatus('Scanner library failed to load — check your connection, or type the barcode below.', true);
+    showRescan(false);
+    return;
+  }
+  if (typeof ZXing.BrowserMultiFormatReader !== 'function'){
+    setStatus('Scanner library loaded but is missing the camera reader — type the barcode below, or photograph the ingredients label.', true);
+    showRescan(false);
     return;
   }
   if (!window.isSecureContext){
     setStatus('Camera needs https:// (or localhost). Over file:// it will not work — type the barcode below instead.', true);
+    showRescan(false);
     return;
   }
 
   try{
-    html5QrCode = new Html5Qrcode("reader", {
-      formatsToSupport: retailBarcodeFormats(),
-      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      verbose: false
+    // Request the camera ourselves so we control the constraints and can report the
+    // real failure reason, rather than having it buried inside a scanner library.
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
     });
+
+    scanVideo.srcObject = scanStream;
+    await scanVideo.play();
+
     scannerCard.classList.add('scanning');
     setStatus('Point the camera at the barcode…');
 
-    await withTimeout(html5QrCode.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: wideScanBox },
-      (decodedText) => {
+    zxingReader = buildZXingReader();
+    zxingReader.decodeFromStream(scanStream, scanVideo, (result, err) => {
+      if (result){
+        const text = result.getText ? result.getText() : String(result);
         clearScanTimeout();
-        setStatus('Barcode read: ' + decodedText);
-        document.getElementById('barcodeInput').value = decodedText;
-        lookupBarcode(decodedText);
+        setStatus('Barcode read: ' + text);
+        document.getElementById('barcodeInput').value = text;
+        lookupBarcode(text);
         stopScan();
-      },
-      () => { /* per-frame decode misses are normal — ignore */ }
-    ), 8000, 'camera start');
+      }
+      // err on most frames is a normal "nothing decoded in this frame" — ignore it
+    });
 
     startBtn.style.display = 'none';
     stopBtn.style.display = 'block';
     startScanTimeout();
 
   }catch(err){
+    stopCameraStream();
     scannerCard.classList.remove('scanning');
-    html5QrCode = null;
     const name = err && err.name;
     let msg;
-    if (name === 'NotAllowedError')          msg = 'Camera permission denied. Allow camera access for this site, then try again.';
-    else if (name === 'NotFoundError')       msg = 'No camera found on this device.';
-    else if (name === 'NotReadableError')    msg = 'The camera is being used by another app. Close it and try again.';
-    else if (name === 'OverconstrainedError')msg = 'This device rejected the camera request.';
-    else                                     msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
+    if (name === 'NotAllowedError')           msg = 'Camera permission denied. Allow camera access for this site, then try again.';
+    else if (name === 'NotFoundError')        msg = 'No camera found on this device.';
+    else if (name === 'NotReadableError')     msg = 'The camera is being used by another app. Close it and try again.';
+    else if (name === 'OverconstrainedError') msg = 'This device rejected the camera request.';
+    else                                      msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
     viewportIdle.innerHTML = 'CAMERA UNAVAILABLE';
     setStatus(msg + ' You can type the barcode below, or photograph the ingredients label.', true);
     showRescan(false);
   }
 }
 
+// Releasing the tracks explicitly matters — without it the camera indicator stays on
+// and the device can refuse to hand the camera back on the next attempt.
+function stopCameraStream(){
+  if (scanStream){
+    scanStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+    scanStream = null;
+  }
+  if (scanVideo){
+    try{ scanVideo.pause(); }catch(e){}
+    scanVideo.srcObject = null;
+  }
+}
 
-// How long the live camera scan runs before giving up and releasing the camera.
-// Kept short deliberately — a scanner that spins indefinitely reads as broken, drains
-// battery, and holds the camera open. Raise this if barcodes need longer to acquire.
+function stopScan(){
+  clearScanTimeout();
+  if (zxingReader){
+    try{ zxingReader.reset(); }catch(e){}
+    zxingReader = null;
+  }
+  stopCameraStream();
+  scannerCard.classList.remove('scanning');
+  startBtn.style.display = 'block';
+  stopBtn.style.display = 'none';
+}
+
+// How long the live scan runs before giving up and releasing the camera.
 const SCAN_TIMEOUT_MS = 10000;
 
-// Auto-stop the scan after SCAN_TIMEOUT_MS rather than running forever.
 function startScanTimeout(){
   clearScanTimeout();
   scanTimeoutTimer = setTimeout(() => {
@@ -847,6 +875,10 @@ function startScanTimeout(){
     setStatus("No barcode read after " + (SCAN_TIMEOUT_MS / 1000) + "s. Try again, or type the number below.", true);
     showRescan(true);
   }, SCAN_TIMEOUT_MS);
+}
+
+function clearScanTimeout(){
+  if (scanTimeoutTimer){ clearTimeout(scanTimeoutTimer); scanTimeoutTimer = null; }
 }
 
 // Prompt to try again after a failed scan, so the next attempt is one tap away.
@@ -860,22 +892,6 @@ function hideRescan(){
   const panel = document.getElementById('rescanPanel');
   if (panel) panel.classList.remove('show');
 }
-function clearScanTimeout(){
-  if (scanTimeoutTimer){ clearTimeout(scanTimeoutTimer); scanTimeoutTimer = null; }
-}
-
-stopBtn.addEventListener('click', () => stopScan());
-
-function stopScan(){
-  clearScanTimeout();
-  if (html5QrCode){
-    html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
-  }
-  scannerCard.classList.remove('scanning');
-  startBtn.style.display = 'block';
-  stopBtn.style.display = 'none';
-}
-
 // ---------- Photo-of-label OCR flow ----------
 const photoDrop = document.getElementById('photoDrop');
 const photoInput = document.getElementById('photoInput');
