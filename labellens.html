@@ -762,38 +762,55 @@ function wideScanBox(viewfinderWidth, viewfinderHeight){
 //
 // Preferred path: enumerate cameras and pass a deviceId string, which is unambiguous
 // and sidesteps facingMode quirks across browsers.
+// Wraps any promise so a hung call can't freeze the UI forever. getCameras() in
+// particular triggers the permission prompt and can never settle on some browsers —
+// that hang is what left the app stuck on "STARTING CAMERA…" with no way out.
+function withTimeout(promise, ms, label){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(label + ' timed out after ' + ms + 'ms')), ms))
+  ]);
+}
+
+// Simple forms FIRST. The earlier version called getCameras() up front, putting a
+// call that can hang on the critical path before anything else could run. start()
+// requests permission by itself, so enumeration isn't needed for the common case —
+// it's now only a later fallback, and time-boxed.
 async function buildCameraTiers(){
-  const tiers = [];
+  const tiers = [
+    { label: 'facingMode "environment"',     cameraId: { facingMode: "environment" }, config: {} },
+    { label: 'facingMode exact environment', cameraId: { facingMode: { exact: "environment" } }, config: {} },
+  ];
+
   try{
-    const cams = await Html5Qrcode.getCameras();
+    diag('Enumerating cameras (max 6s)…');
+    const cams = await withTimeout(Html5Qrcode.getCameras(), 6000, 'getCameras()');
     diag('Cameras found: ' + cams.length);
     cams.forEach((c, i) => diag('  [' + i + '] ' + (c.label || '(no label)')));
 
     const rear = cams.find(c => /back|rear|environment/i.test(c.label || ''));
-    const chosen = rear || cams[cams.length - 1]; // last is usually the rear camera
+    const chosen = rear || cams[cams.length - 1];
     if (chosen){
-      diag('Chose camera: ' + (chosen.label || chosen.id));
-      tiers.push({ label: 'deviceId + 1920x1080', cameraId: chosen.id,
-                   config: { videoConstraints: { deviceId: { exact: chosen.id }, width: { ideal: 1920 }, height: { ideal: 1080 } } } });
+      diag('Rear camera: ' + (chosen.label || chosen.id));
       tiers.push({ label: 'deviceId + 1280x720', cameraId: chosen.id,
                    config: { videoConstraints: { deviceId: { exact: chosen.id }, width: { ideal: 1280 }, height: { ideal: 720 } } } });
       tiers.push({ label: 'deviceId plain', cameraId: chosen.id, config: {} });
     }
   }catch(e){
-    diag('getCameras() failed: ' + (e && (e.name || e.message || e)));
+    diag('Camera enumeration skipped: ' + (e && (e.message || e.name || e)));
   }
 
-  // Fallbacks using only the valid single-key / string forms
-  tiers.push({ label: 'facingMode "environment"',       cameraId: { facingMode: "environment" }, config: {} });
-  tiers.push({ label: 'facingMode exact environment',   cameraId: { facingMode: { exact: "environment" } }, config: {} });
-  tiers.push({ label: 'facingMode "user"',              cameraId: { facingMode: "user" }, config: {} });
+  tiers.push({ label: 'facingMode "user"', cameraId: { facingMode: "user" }, config: {} });
   return tiers;
 }
 
 startBtn.addEventListener('click', async () => {
   clearStatus();
   diagLines = [];
+  showDiagnostics();   // visible from the START, not only after a failure — otherwise
+                       // a hang during startup shows the user nothing at all
   viewportIdle.innerHTML = 'STARTING CAMERA…';
+  setStatus('Starting camera…');
 
   if (typeof Html5Qrcode === 'undefined'){
     setStatus('Scanner library failed to load (no internet, or a blocker stopped the CDN). Use manual entry or a photo instead.', true);
@@ -819,7 +836,7 @@ startBtn.addEventListener('click', async () => {
       });
       scannerCard.classList.add('scanning');
 
-      await html5QrCode.start(
+      await withTimeout(html5QrCode.start(
         tier.cameraId,
         Object.assign({ fps: 10, qrbox: wideScanBox }, tier.config),
         (decodedText, result) => {
@@ -831,7 +848,7 @@ startBtn.addEventListener('click', async () => {
           stopScan();
         },
         () => { /* per-frame decode misses are normal — ignore */ }
-      );
+      ), 8000, 'camera start (' + tier.label + ')');
 
       started = true;
       diag('STARTED on: ' + tier.label);
