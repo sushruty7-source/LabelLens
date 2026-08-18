@@ -844,7 +844,12 @@ extractBtn.addEventListener('click', async () => {
 // whole OCR blob. OCR frequently misreads letters in that header (E→A, I→1/L, etc. — the
 // literal example that prompted this: "INGRADIENTS"), so the header match is fuzzy on the
 // characters most commonly misread rather than requiring an exact "INGREDIENTS" string.
-const INGREDIENTS_HEADER_RE = /[il1]ngr[ea]d[il1]ents?\s*[:\-]?/i;
+// Letters allowed to vary between what's actually printed and what OCR reads back
+// (E/A and I/1/l are the most commonly confused). Whitespace is allowed BETWEEN every
+// letter too — packaging often prints this header in letter-spaced/tracked bold type,
+// and OCR frequently reads that back with visible gaps between characters, e.g.
+// "I N G R A D I E N T S :" — a regex requiring contiguous letters misses that entirely.
+const INGREDIENTS_HEADER_RE = /[il1]\s*n\s*g\s*r\s*[ea]\s*d\s*[il1]\s*e\s*n\s*t\s*s?\s*[:;\-.]?/i;
 
 // A handful of section headers that commonly follow the ingredient list on real labels —
 // used to cut off the capture before allergen/nutrition text gets pulled in as "ingredients".
