@@ -2,15 +2,31 @@
 
 LabelLens shows two tallies in the footer:
 
-- **Local** — labels scanned on that device. Works with no setup at all.
-- **Global** — total across everyone using your deployed app. Needs the steps below.
+- **Local** — labels scanned on that device.
+- **Global** — total across everyone using your deployed app.
 
-**The global counter is optional and off by default.** With it unconfigured, the app
-shows only the local count and behaves exactly as before. Nothing breaks if you skip
-this, and nothing breaks if the counter later goes down.
+**Both work with no setup.** The global counter defaults to a free keyless counting
+service, so it displays on every device immediately after you deploy.
 
-Free tier covers this easily: Cloudflare gives 100,000 Worker requests/day and 100,000
-KV reads/day, which is far beyond a school project's needs.
+## Should you do the Cloudflare setup below?
+
+The default is fine for a demo. Switch to your own Cloudflare Worker if you want the
+counter to be dependable, because the free service has real limitations:
+
+| | Free keyless service (default) | Your Cloudflare Worker |
+|---|---|---|
+| Setup | none | ~10 minutes |
+| Can disappear | yes — the service it replaced already shut down | no, it's yours |
+| Key is public | yes, anyone who finds it can inflate the count | origin-locked + rate limited |
+| Cost | free | free (well within Cloudflare's limits) |
+
+Either way, if the counter is unreachable the app silently shows the local count only.
+A counter should never be able to break a live demo.
+
+**Changing the default key:** in `labellens.html`, edit `COUNTAPI_KEY`. The service has
+no namespaces — every key shares one global space — so pick something long and unique,
+or you may end up sharing a counter with a stranger. All keys and values are public;
+never put anything sensitive in the key.
 
 ---
 

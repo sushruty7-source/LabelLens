@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-<title>LabelLens — Barcode Ingredient Scanner</title>
+<title>LabelLens — Ingredient Scanner</title>
 
 <!-- Mobile / "Add to Home Screen" support -->
 <meta name="theme-color" content="#0d1512">
@@ -18,16 +18,11 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<!-- BarcodeDetector polyfill, backed by ZXing-C++ WebAssembly. iOS/WebKit has never
-     implemented the native Barcode Detection API and the iOS 17 feature flag broke in
-     iOS 18, so on iPhone this polyfill IS the scanner. On Android Chrome the native
-     implementation is used instead. The IIFE build registers both:
-       window.BarcodeDetector                     (polyfill — only if native is absent)
-       window.BarcodeDetectionAPI.BarcodeDetector (ponyfill — always the WASM one)
-     Having both lets us fall back to WASM if a native implementation exists but
-     doesn't support the retail formats we need. -->
-<script src="https://cdn.jsdelivr.net/npm/barcode-detector@3/dist/iife/index.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<!-- BarcodeDetector polyfill, backed by ZXing-C++ WebAssembly. iOS/WebKit has never
+     implemented the native Barcode Detection API, so on iPhone this polyfill IS the
+     scanner. On Android Chrome the native implementation is used instead. -->
+<script src="https://cdn.jsdelivr.net/npm/barcode-detector@3/dist/iife/index.min.js"></script>
 <style>
   :root{
     --ink: #0d1512;
@@ -90,12 +85,12 @@
     overflow:hidden;
   }
   #reader{width:100%; height:100%; position:relative;}
-  /* 'contain', not 'cover' — cover CROPS the feed, so the user aims at a barcode that
-     is outside the frame actually being decoded. Letterboxing is the honest option. */
+  /* 'contain', not 'cover' — cover CROPS the feed, so the user would aim at a barcode
+     that sits outside the frame actually being decoded. */
   #reader video{object-fit:contain; width:100%; height:100%; display:block; background:#060a08;}
   .viewport-idle{
     text-align:center; color:var(--text-dim); font-family:var(--mono); font-size:12px;
-    padding:20px; line-height:1.6;
+    padding:20px; line-height:1.6; position:absolute; left:0; right:0;
   }
   .laser-line{
     position:absolute; left:8%; right:8%; height:2px;
@@ -112,8 +107,7 @@
     0%,100%{ top:32%; }
     50%{ top:68%; }
   }
-  /* Corner guides outline a WIDE, SHORT target — the shape of a retail barcode —
-     rather than the full frame, so it's obvious the barcode should span the width. */
+  /* Corner guides outline a WIDE, SHORT target — the shape of a retail barcode. */
   .corner{
     position:absolute; width:22px; height:22px; border-color: var(--green);
     opacity:.85; pointer-events:none;
@@ -127,7 +121,6 @@
     padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
   }
 
-
   /* Rescan prompt — shown after a failed read */
   .rescan{ display:none; border-top:1px solid var(--line); padding:14px 16px; }
   .rescan.show{ display:block; }
@@ -140,23 +133,6 @@
     font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.75;
   }
 
-  button{
-    font-family: var(--display); font-weight:600; font-size:14px;
-    border-radius:8px; border:1px solid var(--line); cursor:pointer;
-    padding:12px 14px; min-height:44px; transition: all .15s ease; letter-spacing:0.01em;
-    -webkit-appearance:none; appearance:none;
-  }
-  .btn-primary{
-    background: var(--green); color:#062015; border-color:var(--green); flex:1;
-  }
-  .btn-primary:hover{filter:brightness(1.08);}
-  .btn-primary:disabled{opacity:.5; cursor:default;}
-  .btn-ghost{
-    background:transparent; color:var(--text); flex:1;
-  }
-  .btn-ghost:hover{background:var(--panel-2);}
-
-  /* MANUAL ENTRY */
   .manual{
     margin:14px 18px 0; background:var(--panel); border:1px solid var(--line);
     border-radius:14px; padding:14px 16px;
@@ -181,12 +157,12 @@
   }
   .sample-chip:hover{color:var(--text); border-color:var(--gray);}
 
-  /* PHOTO SCAN */
   .divider{
     display:flex; align-items:center; gap:10px; margin:18px 18px 0;
     font-family:var(--mono); font-size:10px; color:var(--gray); letter-spacing:0.1em;
   }
   .divider::before, .divider::after{content:''; flex:1; height:1px; background:var(--line);}
+
   .photo-card{
     margin:14px 18px 0; background:var(--panel); border:1px solid var(--line);
     border-radius:14px; padding:14px 16px;
@@ -391,7 +367,7 @@
 
   <div class="photo-card">
     <label>Photo of the ingredient label</label>
-    <p class="photo-hint">Snap or upload a clear photo of the ingredients list — good for products with no barcode match, or to double-check what OFF has on file.</p>
+    <p class="photo-hint">Snap or upload a clear photo of the ingredients list. Works on any product — food, cosmetics, household — since it reads the label itself rather than looking the item up.</p>
     <div class="photo-drop" id="photoDrop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="margin:0 auto;display:block;"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 6l1.5-2.5h5L16 6"/><circle cx="12" cy="13" r="3.5"/></svg>
       <div class="photo-drop-text"><b>Tap to take a photo</b> or choose a file</div>
@@ -441,7 +417,7 @@
   </div>
 
   <footer>
-    DATA: Open Food Facts · Open Beauty Facts · IARC Monographs (WHO) · prototype build<br>
+    IARC Monographs (WHO) · prototype build<br>
     <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span><br>
     <span id="tableSourceNote" style="opacity:.8">Reference table: loading…</span>
     <div class="scan-count" id="scanCount"></div>
@@ -506,14 +482,39 @@ async function loadReferenceTable(){
 // ---------- Scan counter ----------
 // Two tallies:
 //   • LOCAL  — labels classified on this device, in localStorage. Always works offline.
-//   • GLOBAL — total across everyone, from the Cloudflare Worker in counter-worker.js.
+//   • GLOBAL — total across everyone using your deployed copy of the app.
 //
-// The global counter is OPTIONAL and OFF until you paste your Worker URL below. With
-// it unset, or unreachable, the app silently shows the local count only — a counter is
-// a nice-to-have, and it must never be able to break a scan or a live demo.
+// The global counter works with NO SETUP by default, using a free keyless counting
+// service. If you deploy the Cloudflare Worker in counter-worker.js and set
+// COUNTER_API_URL below, that is used instead — preferred for anything you care
+// about, since it's yours and can't disappear.
+//
+// Set COUNTER_API_URL to your Worker URL to switch over:
 const COUNTER_API_URL = null;  // e.g. 'https://labellens-counter.YOUR-NAME.workers.dev'
 
+// Zero-setup fallback. Caveats worth knowing:
+//   • This is a free service run by a volunteer; the counter it replaced (countapi.xyz)
+//     shut down, so treat it as best-effort, not durable.
+//   • There are no namespaces — every key shares one global space, so the key below is
+//     deliberately long and unique to avoid colliding with someone else's counter.
+//   • All keys and values are PUBLIC. Never put anything sensitive in the key.
+//     Anyone who learns the key can also inflate the number, so this is a fun stat,
+//     not a metric to rely on.
+const COUNTAPI_BASE = 'https://countapi.mileshilliard.com/api/v1';
+const COUNTAPI_KEY  = 'labellens_scans_v1_a7f3c9';   // change this to make it yours
+
 const COUNTER_TIMEOUT_MS = 4000;
+
+// Wraps fetch with an abort timeout so a slow or dead counter service can't hang.
+async function fetchWithTimeout(url, timeoutMs, options){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try{
+    return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const SCAN_COUNT_KEY = 'labellens.scanCount';
 let scanCountMemory = 0;
 let globalScanCount = null;   // null = unknown/unavailable, so we just hide it
@@ -537,32 +538,46 @@ function writeScanCount(n){
   }
 }
 
-// Fetch the shared total. Failures are deliberately silent: the local count carries on.
+// Counter services disagree on the response field name, so accept either.
+function parseCount(data){
+  if (!data) return null;
+  if (typeof data.count === 'number') return data.count;
+  if (typeof data.value === 'number') return data.value;
+  return null;
+}
+
+// Read the shared total. Failures are deliberately silent: the local count carries on.
 async function fetchGlobalCount(){
-  if (!COUNTER_API_URL) return;
+  const url = COUNTER_API_URL
+    ? COUNTER_API_URL
+    : `${COUNTAPI_BASE}/get/${COUNTAPI_KEY}`;
   try{
-    const res = await fetchWithTimeout(COUNTER_API_URL, COUNTER_TIMEOUT_MS);
+    const res = await fetchWithTimeout(url, COUNTER_TIMEOUT_MS);
     if (!res.ok) return;
-    const data = await res.json();
-    if (typeof data.count === 'number'){
-      globalScanCount = data.count;
+    const n = parseCount(await res.json());
+    if (n !== null){
+      globalScanCount = n;
       renderScanCount();
     }
   }catch(e){
-    // offline, worker down, or CORS — global tally just stays hidden
+    // offline, service down, or CORS — global tally just stays hidden
   }
 }
 
-// Report a scan to the shared counter. Fire-and-forget so a slow or dead worker never
-// delays showing the user their result.
+// Report a scan. Fire-and-forget so a slow or dead counter never delays the result.
 async function reportGlobalScan(){
-  if (!COUNTER_API_URL) return;
   try{
-    const res = await fetchWithTimeout(COUNTER_API_URL, COUNTER_TIMEOUT_MS, { method: 'POST' });
+    let res;
+    if (COUNTER_API_URL){
+      res = await fetchWithTimeout(COUNTER_API_URL, COUNTER_TIMEOUT_MS, { method: 'POST' });
+    }else{
+      // The keyless service increments via GET /hit/<key>
+      res = await fetchWithTimeout(`${COUNTAPI_BASE}/hit/${COUNTAPI_KEY}`, COUNTER_TIMEOUT_MS);
+    }
     if (!res.ok && res.status !== 429) return;
-    const data = await res.json();
-    if (typeof data.count === 'number'){
-      globalScanCount = data.count;
+    const n = parseCount(await res.json());
+    if (n !== null){
+      globalScanCount = n;
       renderScanCount();
     }
   }catch(e){
@@ -583,7 +598,7 @@ const GLOBAL_REFRESH_MS = 30000;
 let globalRefreshTimer = null;
 
 function startGlobalRefresh(){
-  if (!COUNTER_API_URL || globalRefreshTimer) return;
+  if (globalRefreshTimer) return;
   globalRefreshTimer = setInterval(fetchGlobalCount, GLOBAL_REFRESH_MS);
 }
 
@@ -671,7 +686,6 @@ function badgeClass(group){
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
 const productEl = document.getElementById('product');
-const scannerCard = document.getElementById('scannerCard');
 
 function setStatus(msg, isError){
   statusEl.classList.add('show');
@@ -682,39 +696,14 @@ function clearStatus(){ statusEl.classList.remove('show'); }
 
 // Product data sources — the Open ___ Facts family (one nonprofit, one API shape,
 // free and keyless, and both return real parsed ingredient lists).
-//
-//   Food Facts   → groceries
-//   Beauty Facts → cosmetics / personal care  (shampoo, lotion, makeup)
-//
-// Beauty Facts matters here specifically because the carcinogen table carries several
-// cosmetics entries — talc, parabens, formaldehyde-releasers, coal tar — that would
-// otherwise never get matched, since groceries alone never surface those ingredients.
-//
-// Open Products Facts was removed: it covers general household goods (electronics,
-// stationery, hardware) where most records have no ingredient list at all, so it
-// mostly returned empty shells. Easy to re-add — one line in the array below.
-//
-// Deliberately excluded: general barcode/commerce APIs (UPCitemdb, Go-UPC, Barcode
-// Lookup). They index names and images but carry no ingredients, so a "hit" from one
-// can't be classified — it looks like an answer while saying nothing about contents.
-//
-// Queried in PARALLEL, not one after another, so adding sources doesn't add wait time:
-// total latency stays roughly the slowest single request rather than the sum of all.
+// Beauty Facts matters because the carcinogen table carries cosmetics entries — talc,
+// parabens, formaldehyde-releasers, coal tar — that groceries alone never surface.
+// Queried in PARALLEL so two sources cost roughly the same wait as one.
 const OPEN_FACTS_SOURCES = [
   { label: 'Open Food Facts',   base: 'https://world.openfoodfacts.org/api/v2/product/' },
   { label: 'Open Beauty Facts', base: 'https://world.openbeautyfacts.org/api/v2/product/' },
 ];
 const LOOKUP_TIMEOUT_MS = 6000;
-
-async function fetchWithTimeout(url, timeoutMs, options){
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try{
-    return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 async function checkOpenFactsSource(src, code){
   try{
@@ -722,8 +711,8 @@ async function checkOpenFactsSource(src, code){
     if (!res.ok) return null;
     const data = await res.json();
     // NOTE: these APIs return HTTP 200 even for a barcode they don't have — the miss
-    // is signalled by status:0 in the body, so checking res.ok alone would silently
-    // treat "not found" as a successful empty result.
+    // is signalled by status:0 in the body, so res.ok alone would treat "not found"
+    // as a successful empty result.
     if (data.status === 1 && data.product){
       return { product: data.product, sourceLabel: src.label };
     }
@@ -733,9 +722,8 @@ async function checkOpenFactsSource(src, code){
   return null;
 }
 
-// Does this product record actually carry an ingredient list? A source can return a
-// match that is just a name and image with no ingredients recorded, which is useless
-// for classification — so results are checked for real content, not just presence.
+// Does this record actually carry an ingredient list? A source can return a match
+// that is just a name and image, which is useless for classification.
 function hasIngredients(product){
   if (!product) return false;
   if (Array.isArray(product.ingredients) && product.ingredients.length) return true;
@@ -748,20 +736,15 @@ async function tryOpenFacts(code){
   );
   const found = results.filter(r => r !== null);
   if (!found.length) return null;
-
-  // Prefer a source that actually has ingredients, keeping list order (Food > Beauty)
-  // as the tie-break among those. Strict source order alone would let a bare record —
-  // name and image but no ingredients — beat one carrying the full list, which is the
-  // opposite of what this app needs.
+  // Prefer a source that actually has ingredients, keeping list order as the tie-break.
   return found.find(r => hasIngredients(r.product)) || found[0];
 }
 
-// Simple in-memory cache so re-scanning the same barcode in one session is instant —
-// handy for testing, and for products you check more than once.
+// Re-scanning the same barcode in one session is instant.
 const lookupCache = new Map();
 
 async function lookupBarcode(code){
-  code = code.trim();
+  code = String(code || '').trim();
   if (!code){ setStatus('Enter a barcode first.', true); return; }
   productEl.classList.remove('show');
 
@@ -772,16 +755,11 @@ async function lookupBarcode(code){
     return;
   }
 
-  setStatus('Looking up ' + code + ' across ingredient databases…');
+  setStatus('Looking up ' + code + '…');
   try{
     const tablePromise = tableReady ? Promise.resolve() : loadReferenceTable();
-    const [offResult] = await Promise.all([
-      tryOpenFacts(code),
-      tablePromise
-    ]);
+    const [offResult] = await Promise.all([ tryOpenFacts(code), tablePromise ]);
 
-    // If the first load attempt failed, try once more before giving up — a transient
-    // network blip on page load shouldn't permanently disable the app for the session.
     if (!tableLoaded) await loadReferenceTable();
     if (!tableLoaded){ showTableUnavailable(); return; }
 
@@ -792,7 +770,7 @@ async function lookupBarcode(code){
       return;
     }
 
-    setStatus("Not found in Open Food Facts or Open Beauty Facts — use the photo option below to read the label directly.", true);
+    setStatus("Barcode not found in the product databases — use the photo option below to read the label directly.", true);
   }catch(err){
     setStatus('Lookup failed — network issue. ' + err.message, true);
   }
@@ -808,18 +786,21 @@ function renderProduct(p, code, sourceLabel){
   }
   renderIngredientsBlock({
     name: p.product_name || '(unnamed product)',
-    brand: (p.brands || '—') + ' · ' + code + ' · ' + sourceLabel,
+    brand: (p.brands || '—') + ' · ' + code,
     imgUrl,
     ingredients,
-    emptyMessage: `Found this product in ${sourceLabel}, but no ingredient list is on file. Try the photo option below to scan the label directly.`
+    emptyMessage: 'Found this product, but no ingredient list is on file. Try the photo option below to scan the label directly.'
   });
 }
 
 function splitIngredientText(text){
-  return text.split(/,|\(|\)|\n|;/).map(s => s.trim()).filter(s => s.length > 1);
+  return splitOnTopLevelCommas(text.replace(/\n/g, ' '))
+    .map(s => s.trim())
+    .filter(s => s.length > 1);
 }
 
-// Shared renderer used by both the barcode (Open Food Facts) flow and the photo-OCR flow.
+// Renders the classified ingredient list. Kept as a standalone function so any future
+// input path (a pasted list, a different data source) can feed the same display.
 function renderIngredientsBlock({ name, brand, imgUrl, ingredients, emptyMessage }){
   document.getElementById('prodName').textContent = name;
   document.getElementById('prodBrand').textContent = brand;
@@ -886,6 +867,7 @@ function escapeHtml(str){
   return d.innerHTML;
 }
 
+// ---------- Manual barcode entry ----------
 document.getElementById('lookupBtn').addEventListener('click', () => {
   lookupBarcode(document.getElementById('barcodeInput').value);
 });
@@ -899,44 +881,34 @@ document.querySelectorAll('.sample-chip').forEach(chip => {
   });
 });
 
-// ---------- Camera scanning (graceful fallback if blocked) ----------
-let scanTimeoutTimer = null;
+// ---------- Barcode scanner (BarcodeDetector + WASM polyfill) ----------
+// On Android Chrome the native BarcodeDetector is used. On iOS — where WebKit has
+// never shipped it — the polyfill provides the same API backed by WebAssembly.
+const scannerCard = document.getElementById('scannerCard');
+const scanVideo = document.getElementById('scanVideo');
 const startBtn = document.getElementById('startScanBtn');
 const stopBtn = document.getElementById('stopScanBtn');
 const viewportIdle = document.getElementById('viewportIdle');
-
-// ---------- Barcode scanner (BarcodeDetector + zxing-wasm polyfill) ----------
-// On Android Chrome the native BarcodeDetector is used. On iOS — where WebKit has
-// never shipped it, and the iOS 17 feature flag broke in iOS 18 — the polyfill
-// provides the same API backed by WebAssembly. Same code path either way.
-const scanVideo = document.getElementById('scanVideo');
 let scanStream = null;
 let scanRafId = null;
 let scanning = false;
+let scanTimeoutTimer = null;
 
-// Retail formats only. Fewer formats per frame = faster decode, and these are what
-// actually appear on consumer packaging.
+const SCAN_TIMEOUT_MS = 10000;
 const RETAIL_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
 
-// The IIFE script tag loads synchronously before this code runs, so no readiness
-// dance is needed — but we still verify, in case the CDN was blocked.
 async function createDetector(){
   const Native = window.BarcodeDetector;
   const Wasm = window.BarcodeDetectionAPI && window.BarcodeDetectionAPI.BarcodeDetector;
-
-  // Prefer native only when it actually supports the retail formats we care about.
-  // A native implementation that can't read EAN/UPC is worse than the WASM one.
   if (Native){
     try{
       const supported = await Native.getSupportedFormats();
       const usable = RETAIL_FORMATS.filter(f => supported.includes(f));
-      if (usable.length){
-        return { detector: new Native({ formats: usable }), engine: 'native' };
-      }
+      if (usable.length) return { detector: new Native({ formats: usable }), engine: 'native' };
     }catch(e){ /* fall through to WASM */ }
   }
   if (Wasm) return { detector: new Wasm({ formats: RETAIL_FORMATS }), engine: 'wasm' };
-  if (Native) return { detector: new Native(), engine: 'native (all formats)' };
+  if (Native) return { detector: new Native(), engine: 'native' };
   return null;
 }
 
@@ -949,7 +921,7 @@ async function startScan(){
   viewportIdle.innerHTML = 'STARTING CAMERA…';
 
   if (!window.isSecureContext){
-    setStatus('Camera needs https:// (or localhost). Over file:// it will not work — type the barcode below instead.', true);
+    setStatus('Camera needs https:// (or localhost). Over file:// it will not work — type the barcode above instead.', true);
     showRescan(false);
     return;
   }
@@ -961,21 +933,14 @@ async function startScan(){
     showRescan(false);
     return;
   }
-  console.log('[LabelLens] barcode engine: ' + built.engine);
 
   try{
     scanStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width:  { ideal: 1280 },
-        height: { ideal: 720 }
-      },
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
-
     scanVideo.srcObject = scanStream;
-    // iOS needs these set for an inline autoplay to be allowed at all.
-    scanVideo.setAttribute('playsinline', '');
+    scanVideo.setAttribute('playsinline', '');   // iOS requires this for inline playback
     scanVideo.muted = true;
     await scanVideo.play();
 
@@ -994,37 +959,32 @@ async function startScan(){
     scannerCard.classList.remove('scanning');
     const name = err && err.name;
     let msg;
-    if (name === 'NotAllowedError')           msg = 'Camera permission denied. In Safari: tap the "aA" icon in the address bar → Website Settings → Camera → Allow, then try again.';
+    if (name === 'NotAllowedError')           msg = 'Camera permission denied. In Safari: tap "aA" in the address bar → Website Settings → Camera → Allow, then try again.';
     else if (name === 'NotFoundError')        msg = 'No camera found on this device.';
     else if (name === 'NotReadableError')     msg = 'The camera is being used by another app. Close it and try again.';
     else if (name === 'OverconstrainedError') msg = 'This device rejected the camera request.';
     else                                      msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
     viewportIdle.innerHTML = 'CAMERA UNAVAILABLE';
-    setStatus(msg + ' You can type the barcode below, or photograph the ingredients label.', true);
+    setStatus(msg + ' You can type the barcode above, or photograph the ingredients label below.', true);
     showRescan(false);
   }
 }
 
-// Detect on each animation frame. detect() is async, so the loop waits for each pass
-// to finish rather than stacking overlapping calls on a slow device.
+// detect() is async, so each pass finishes before the next starts rather than
+// stacking overlapping calls on a slow device.
 async function runDetectLoop(detector){
   if (!scanning) return;
-
   if (scanVideo.readyState >= 2 && scanVideo.videoWidth > 0){
     try{
       const codes = await detector.detect(scanVideo);
-      if (codes && codes.length){
-        const value = codes[0].rawValue;
-        if (value){
-          onBarcodeDecoded(value);
-          return;
-        }
+      if (codes && codes.length && codes[0].rawValue){
+        onBarcodeDecoded(codes[0].rawValue);
+        return;
       }
     }catch(e){
-      // Transient decode errors are normal per frame — keep going.
+      // transient per-frame decode errors are normal — keep going
     }
   }
-
   if (scanning) scanRafId = requestAnimationFrame(() => runDetectLoop(detector));
 }
 
@@ -1036,8 +996,8 @@ function onBarcodeDecoded(value){
   stopScan();
 }
 
-// Releasing the tracks explicitly matters — without it the camera indicator stays on
-// and the device can refuse to hand the camera back on the next attempt.
+// Releasing tracks explicitly matters — without it the camera indicator stays on and
+// the device can refuse to hand the camera back on the next attempt.
 function stopCameraStream(){
   if (scanStream){
     scanStream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
@@ -1058,8 +1018,6 @@ function stopScan(){
   startBtn.style.display = 'block';
   stopBtn.style.display = 'none';
 }
-// How long the live scan runs before giving up and releasing the camera.
-const SCAN_TIMEOUT_MS = 10000;
 
 function startScanTimeout(){
   clearScanTimeout();
@@ -1068,16 +1026,14 @@ function startScanTimeout(){
     scannerCard.classList.remove('scanning');
     viewportIdle.innerHTML =
       "COULDN'T READ THE BARCODE<br>hold it flat and fill the width of the guides, in even light";
-    setStatus("No barcode read after " + (SCAN_TIMEOUT_MS / 1000) + "s. Try again, or type the number below.", true);
+    setStatus("No barcode read after " + (SCAN_TIMEOUT_MS / 1000) + "s. Try again, or type the number above.", true);
     showRescan(true);
   }, SCAN_TIMEOUT_MS);
 }
-
 function clearScanTimeout(){
   if (scanTimeoutTimer){ clearTimeout(scanTimeoutTimer); scanTimeoutTimer = null; }
 }
 
-// Prompt to try again after a failed scan, so the next attempt is one tap away.
 function showRescan(showTips){
   const panel = document.getElementById('rescanPanel');
   if (!panel) return;
@@ -1088,6 +1044,7 @@ function hideRescan(){
   const panel = document.getElementById('rescanPanel');
   if (panel) panel.classList.remove('show');
 }
+
 // ---------- Photo-of-label OCR flow ----------
 const photoDrop = document.getElementById('photoDrop');
 const photoInput = document.getElementById('photoInput');
