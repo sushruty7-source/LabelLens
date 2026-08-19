@@ -298,13 +298,13 @@
   .gnone{background:rgba(62,207,142,.1); color:var(--green);}
 
   .legend{
-    margin:16px 18px 0; padding:14px 16px; background:var(--panel-2);
+    margin:16px 18px 0; padding:12px 14px; background:var(--panel-2);
     border:1px solid var(--line); border-radius:12px;
-    font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.9;
+    font-family:var(--mono); font-size:9px; color:var(--text-dim); line-height:1.75;
   }
   .legend b{color:var(--text); font-weight:600;}
-  .legend-row{display:flex; align-items:center; gap:8px;}
-  .legend-swatch{width:8px;height:8px;border-radius:2px; flex-shrink:0;}
+  .legend-row{display:flex; align-items:center; gap:7px;}
+  .legend-swatch{width:7px;height:7px;border-radius:2px; flex-shrink:0;}
 
   .disclaimer{
     margin:14px 18px 0; font-family:var(--mono); font-size:10px; color:var(--gray);
@@ -317,6 +317,8 @@
     letter-spacing:0.04em;
   }
   .scan-count b{ color:var(--green); font-weight:600; font-size:14px; }
+  .count-global{ display:block; }
+  .count-mine{ display:block; margin-top:4px; opacity:.65; font-size:10px; }
 
   footer{
     margin-top:30px; padding:16px 18px 0; text-align:center;
@@ -574,20 +576,49 @@ function incrementScanCount(){
   reportGlobalScan();   // intentionally not awaited
 }
 
+// Keep the shared total live without a reload, so a device sees other people's scans
+// appear. Polling only runs while the tab is actually visible — a backgrounded phone
+// polling every 30s would waste battery and quota for a number nobody is looking at.
+const GLOBAL_REFRESH_MS = 30000;
+let globalRefreshTimer = null;
+
+function startGlobalRefresh(){
+  if (!COUNTER_API_URL || globalRefreshTimer) return;
+  globalRefreshTimer = setInterval(fetchGlobalCount, GLOBAL_REFRESH_MS);
+}
+
+function stopGlobalRefresh(){
+  if (globalRefreshTimer){ clearInterval(globalRefreshTimer); globalRefreshTimer = null; }
+}
+
+if (typeof document !== 'undefined'){
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden){
+      stopGlobalRefresh();
+    }else{
+      fetchGlobalCount();   // refresh straight away on return, don't wait for the tick
+      startGlobalRefresh();
+    }
+  });
+}
+
 function renderScanCount(){
   const el = document.getElementById('scanCount');
   if (!el) return;
   const mine = readScanCount();
-  const minePart = mine === 0
-    ? 'None scanned yet on this device'
-    : '<b>' + mine.toLocaleString() + '</b> scanned on this device';
 
   if (globalScanCount === null){
-    el.innerHTML = minePart;
-  }else{
-    el.innerHTML = '<b>' + globalScanCount.toLocaleString() + '</b> label' +
-      (globalScanCount === 1 ? '' : 's') + ' scanned by everyone · ' + minePart;
+    // Global unavailable (not configured, offline, or worker down) — local only.
+    el.innerHTML = mine === 0
+      ? 'No labels scanned yet on this device'
+      : '<b>' + mine.toLocaleString() + '</b> label' + (mine === 1 ? '' : 's') + ' scanned on this device';
+    return;
   }
+
+  el.innerHTML =
+    '<span class="count-global"><b>' + globalScanCount.toLocaleString() + '</b> label' +
+      (globalScanCount === 1 ? '' : 's') + ' scanned by everyone</span>' +
+    '<span class="count-mine">' + mine.toLocaleString() + ' by you</span>';
 }
 
 function updateTableSourceNote(){
@@ -620,6 +651,7 @@ function showTableUnavailable(){
 loadReferenceTable();
 renderScanCount();
 fetchGlobalCount();   // no await — the local count shows immediately either way
+startGlobalRefresh();
 
 function classify(ingredientName){
   const n = ingredientName.toLowerCase();
