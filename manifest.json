@@ -4,8 +4,8 @@
   "description": "Scan a product barcode to check its ingredients against IARC carcinogen classifications.",
   "start_url": "./labellens.html",
   "display": "standalone",
-  "background_color": "#0d1512",
-  "theme_color": "#0d1512",
+  "background_color": "#F6F7F5",
+  "theme_color": "#F6F7F5",
   "orientation": "portrait",
   "icons": [
     {
