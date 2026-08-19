@@ -1,7 +1,7 @@
 {
   "name": "LabelLens \u2014 Ingredient Scanner",
   "short_name": "LabelLens",
-  "description": "Scan a barcode or photograph an ingredient label to check contents against IARC carcinogen classifications.",
+  "description": "Scan a product barcode to check its ingredients against IARC carcinogen classifications.",
   "start_url": "./labellens.html",
   "display": "standalone",
   "background_color": "#0d1512",

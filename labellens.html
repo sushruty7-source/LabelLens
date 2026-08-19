@@ -18,7 +18,6 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <!-- BarcodeDetector polyfill, backed by ZXing-C++ WebAssembly. iOS/WebKit has never
      implemented the native Barcode Detection API, so on iPhone this polyfill IS the
      scanner. On Android Chrome the native implementation is used instead. -->
@@ -68,6 +67,22 @@
     font-size: 20px; margin:0; letter-spacing:-0.02em; font-weight:700;
   }
   header p{margin:2px 0 0; font-family:var(--mono); font-size:11px; color:var(--text-dim); letter-spacing:0.04em;}
+
+  button{
+    font-family: var(--display); font-weight:600; font-size:14px;
+    border-radius:8px; border:1px solid var(--line); cursor:pointer;
+    padding:12px 14px; min-height:44px; transition: all .15s ease; letter-spacing:0.01em;
+    -webkit-appearance:none; appearance:none;
+  }
+  .btn-primary{
+    background: var(--green); color:#062015; border-color:var(--green); flex:1;
+  }
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-primary:disabled{opacity:.5; cursor:default;}
+  .btn-ghost{
+    background:transparent; color:var(--text); flex:1;
+  }
+  .btn-ghost:hover{background:var(--panel-2);}
 
   /* SCANNER */
   .scanner-card{
@@ -150,60 +165,7 @@
   .manual-row input:focus{border-color:var(--green);}
   .manual-row button{white-space:nowrap;}
 
-  .samples{margin-top:10px; display:flex; flex-wrap:wrap; gap:6px;}
-  .sample-chip{
-    font-family:var(--mono); font-size:11px; background:var(--panel-2); color:var(--text-dim);
-    border:1px solid var(--line); border-radius:20px; padding:5px 10px; cursor:pointer;
-  }
-  .sample-chip:hover{color:var(--text); border-color:var(--gray);}
 
-  .divider{
-    display:flex; align-items:center; gap:10px; margin:18px 18px 0;
-    font-family:var(--mono); font-size:10px; color:var(--gray); letter-spacing:0.1em;
-  }
-  .divider::before, .divider::after{content:''; flex:1; height:1px; background:var(--line);}
-
-  .photo-card{
-    margin:14px 18px 0; background:var(--panel); border:1px solid var(--line);
-    border-radius:14px; padding:14px 16px;
-  }
-  .photo-card label{
-    font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.08em;
-    color:var(--text-dim); display:block; margin-bottom:8px;
-  }
-  .photo-hint{font-family:var(--mono); font-size:11px; color:var(--text-dim); line-height:1.6; margin:0 0 12px;}
-  .photo-drop{
-    border:1.5px dashed var(--line); border-radius:10px; padding:22px 14px; text-align:center;
-    cursor:pointer; transition: border-color .15s ease;
-  }
-  .photo-drop:hover{border-color:var(--green);}
-  .photo-drop svg{width:26px; height:26px; color:var(--text-dim); margin-bottom:8px;}
-  .photo-drop-text{font-family:var(--mono); font-size:12px; color:var(--text-dim);}
-  .photo-drop-text b{color:var(--text); font-weight:600;}
-  #photoInput{display:none;}
-  .photo-preview-wrap{display:none; margin-top:12px;}
-  .photo-preview-wrap.show{display:block;}
-  .photo-preview-wrap img{
-    width:100%; max-height:220px; object-fit:contain; border-radius:10px;
-    background:#060a08; border:1px solid var(--line);
-  }
-  .photo-actions{display:flex; gap:8px; margin-top:10px;}
-  .ocr-progress{
-    display:none; margin-top:12px;
-  }
-  .ocr-progress.show{display:block;}
-  .ocr-progress-label{
-    font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-bottom:6px;
-    display:flex; justify-content:space-between;
-  }
-  .ocr-progress-track{height:6px; background:var(--panel-2); border-radius:4px; overflow:hidden;}
-  .ocr-progress-fill{height:100%; width:0%; background:var(--green); transition: width .2s ease;}
-  .ocr-extracted{
-    margin-top:12px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--line);
-    border-radius:8px; font-family:var(--mono); font-size:11px; color:var(--text-dim);
-    line-height:1.6; max-height:100px; overflow-y:auto; display:none;
-  }
-  .ocr-extracted.show{display:block;}
 
   /* STATUS */
   .status{
@@ -264,6 +226,14 @@
   }
   .ing-name{font-size:13.5px; line-height:1.4;}
   .ing-note{font-family:var(--mono); font-size:10.5px; color:var(--text-dim); margin-top:2px; line-height:1.4;}
+  .ing-matched{
+    font-family:var(--mono); font-size:9.5px; color:var(--gray); margin-top:2px;
+    letter-spacing:0.03em;
+  }
+  .ing-found{
+    font-family:var(--mono); font-size:9.5px; color:var(--gray); margin-top:4px;
+    line-height:1.5; font-style:italic;
+  }
 
   .g1{background:rgba(255,90,78,.16); color:var(--red);}
   .g2a{background:rgba(255,90,78,.10); color:#ff8f7f;}
@@ -355,36 +325,6 @@
       <input type="text" inputmode="numeric" id="barcodeInput" placeholder="e.g. 0016000275287">
       <button class="btn-primary" id="lookupBtn">Look up</button>
     </div>
-    <div class="samples">
-      <span class="sample-chip" data-code="0016000275287">Cheerios</span>
-      <span class="sample-chip" data-code="0028400589166">Doritos</span>
-      <span class="sample-chip" data-code="0049000028911">Diet Coke</span>
-      <span class="sample-chip" data-code="0071720006604">Spam</span>
-    </div>
-  </div>
-
-  <div class="divider">OR</div>
-
-  <div class="photo-card">
-    <label>Photo of the ingredient label</label>
-    <p class="photo-hint">Snap or upload a clear photo of the ingredients list. Works on any product — food, cosmetics, household — since it reads the label itself rather than looking the item up.</p>
-    <div class="photo-drop" id="photoDrop">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" style="margin:0 auto;display:block;"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M8 6l1.5-2.5h5L16 6"/><circle cx="12" cy="13" r="3.5"/></svg>
-      <div class="photo-drop-text"><b>Tap to take a photo</b> or choose a file</div>
-    </div>
-    <input type="file" id="photoInput" accept="image/*" capture="environment">
-    <div class="photo-preview-wrap" id="photoPreviewWrap">
-      <img id="photoPreview">
-      <div class="photo-actions">
-        <button class="btn-primary" id="extractBtn">Extract ingredients</button>
-        <button class="btn-ghost" id="retakeBtn">Retake</button>
-      </div>
-      <div class="ocr-progress" id="ocrProgress">
-        <div class="ocr-progress-label"><span id="ocrStage">Reading image…</span><span id="ocrPct">0%</span></div>
-        <div class="ocr-progress-track"><div class="ocr-progress-fill" id="ocrFill"></div></div>
-      </div>
-      <div class="ocr-extracted" id="ocrExtracted"></div>
-    </div>
   </div>
 
   <div class="status" id="status"><span class="dot"></span><span id="statusText">Looking up product…</span></div>
@@ -406,7 +346,7 @@
     <div class="legend-row"><span class="legend-swatch" style="background:var(--red)"></span><b>Group 1</b> — carcinogenic to humans (IARC)</div>
     <div class="legend-row"><span class="legend-swatch" style="background:#ff8f7f"></span><b>Group 2A</b> — probably carcinogenic</div>
     <div class="legend-row"><span class="legend-swatch" style="background:var(--amber)"></span><b>Group 2B</b> — possibly carcinogenic</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--gray)"></span><b>Group 3</b> — IARC reviewed it, evidence insufficient either way</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--gray)"></span><b>Group 3</b> — IARC reviewed it, evidence insufficient</div>
     <div class="legend-row"><span class="legend-swatch" style="background:#8fb3d9"></span><b>N/A</b> — IARC has not evaluated this substance at all</div>
     <div class="legend-row"><span class="legend-swatch" style="background:var(--green)"></span><b>OK</b> — specifically studied and cleared by regulators</div>
     <div class="legend-row" style="opacity:.7"><span class="legend-swatch" style="background:rgba(62,207,142,.4)"></span>No badge shown — ingredient isn't on this prototype's reference list yet</div>
@@ -671,6 +611,11 @@ startGlobalRefresh();
 function classify(ingredientName){
   const n = ingredientName.toLowerCase();
   for (const entry of CARCINOGEN_TABLE){
+    // Exclusions run FIRST. Substring matching alone produces bad false positives:
+    // "cetyl alcohol" (a fatty alcohol in almost every lotion) contains "alcohol" and
+    // would otherwise be flagged Group 1 alongside drinking ethanol, despite being a
+    // chemically unrelated compound. Over-flagging destroys trust in the whole tool.
+    if (entry.exclude && entry.exclude.some(x => n.includes(x))) continue;
     if (entry.match.some(m => n.includes(m))) return entry;
   }
   return null;
@@ -770,7 +715,7 @@ async function lookupBarcode(code){
       return;
     }
 
-    setStatus("Barcode not found in the product databases — use the photo option below to read the label directly.", true);
+    setStatus("Barcode not found in the product databases. Double-check the number, or try a different product.", true);
   }catch(err){
     setStatus('Lookup failed — network issue. ' + err.message, true);
   }
@@ -789,7 +734,7 @@ function renderProduct(p, code, sourceLabel){
     brand: (p.brands || '—') + ' · ' + code,
     imgUrl,
     ingredients,
-    emptyMessage: 'Found this product, but no ingredient list is on file. Try the photo option below to scan the label directly.'
+    emptyMessage: 'Found this product, but no ingredient list is recorded for it in the product databases, so its contents cannot be checked.'
   });
 }
 
@@ -844,12 +789,20 @@ function renderIngredientsBlock({ name, brand, imgUrl, ingredients, emptyMessage
   document.getElementById('ingredientList').innerHTML = classified.map(c => {
     const label = c.hit ? groupLabel[c.hit.group] : '—';
     const cls = c.hit ? badgeClass(c.hit.group) : 'gnone';
-    const note = c.hit ? c.hit.note : 'Not on reference list checked in this prototype.';
+    const note = c.hit ? c.hit.note : 'Not on the reference list checked here — which means unknown, not safe.';
+    // Show WHICH table entry matched when its name differs from the label text, so a
+    // classification is explainable rather than appearing out of nowhere.
+    const matchedAs = (c.hit && c.hit.name && c.hit.name.toLowerCase() !== c.ing.toLowerCase())
+      ? `<div class="ing-matched">matched: ${escapeHtml(c.hit.name)}</div>` : '';
+    const foundIn = (c.hit && c.hit.found_in)
+      ? `<div class="ing-found">Typically in: ${escapeHtml(c.hit.found_in)}</div>` : '';
     return `<div class="ing-row">
       <div class="ing-badge ${cls}">${label}</div>
       <div>
         <div class="ing-name">${escapeHtml(c.ing)}</div>
+        ${matchedAs}
         <div class="ing-note">${escapeHtml(note)}</div>
+        ${foundIn}
       </div>
     </div>`;
   }).join('');
@@ -873,12 +826,6 @@ document.getElementById('lookupBtn').addEventListener('click', () => {
 });
 document.getElementById('barcodeInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') lookupBarcode(e.target.value);
-});
-document.querySelectorAll('.sample-chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    document.getElementById('barcodeInput').value = chip.dataset.code;
-    lookupBarcode(chip.dataset.code);
-  });
 });
 
 // ---------- Barcode scanner (BarcodeDetector + WASM polyfill) ----------
@@ -965,7 +912,7 @@ async function startScan(){
     else if (name === 'OverconstrainedError') msg = 'This device rejected the camera request.';
     else                                      msg = 'Camera could not start' + (name ? ' (' + name + ')' : '') + '.';
     viewportIdle.innerHTML = 'CAMERA UNAVAILABLE';
-    setStatus(msg + ' You can type the barcode above, or photograph the ingredients label below.', true);
+    setStatus(msg + ' You can still type the barcode number above.', true);
     showRescan(false);
   }
 }
@@ -1045,174 +992,8 @@ function hideRescan(){
   if (panel) panel.classList.remove('show');
 }
 
-// ---------- Photo-of-label OCR flow ----------
-const photoDrop = document.getElementById('photoDrop');
-const photoInput = document.getElementById('photoInput');
-const photoPreviewWrap = document.getElementById('photoPreviewWrap');
-const photoPreview = document.getElementById('photoPreview');
-const extractBtn = document.getElementById('extractBtn');
-const retakeBtn = document.getElementById('retakeBtn');
-const ocrProgress = document.getElementById('ocrProgress');
-const ocrStage = document.getElementById('ocrStage');
-const ocrPct = document.getElementById('ocrPct');
-const ocrFill = document.getElementById('ocrFill');
-const ocrExtracted = document.getElementById('ocrExtracted');
-
-let selectedImageDataUrl = null;
-
-photoDrop.addEventListener('click', () => photoInput.click());
-
-photoInput.addEventListener('change', async () => {
-  const file = photoInput.files && photoInput.files[0];
-  if (!file) return;
-  photoDrop.querySelector('.photo-drop-text').innerHTML = '<b>Processing photo…</b>';
-  try {
-    selectedImageDataUrl = await resizeImageFile(file, 1600, 0.85);
-    photoPreview.src = selectedImageDataUrl;
-    photoPreviewWrap.classList.add('show');
-    ocrProgress.classList.remove('show');
-    ocrExtracted.classList.remove('show');
-    productEl.classList.remove('show');
-    clearStatus();
-  } catch(err){
-    setStatus('Could not read that image: ' + err.message, true);
-  } finally {
-    photoDrop.querySelector('.photo-drop-text').innerHTML = '<b>Tap to take a photo</b> or choose a file';
-  }
-});
-
-// Phone camera photos can be 3–12MB at 12+ megapixels — full size would make OCR slow
-// and can crash lower-end phones. Downscale to a reasonable max dimension first, and
-// use createImageBitmap's imageOrientation option so photos taken in portrait aren't
-// rotated sideways (a common issue when drawing EXIF-rotated photos to a plain canvas).
-async function resizeImageFile(file, maxDim, quality){
-  let source, sw, sh;
-  try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    source = bitmap; sw = bitmap.width; sh = bitmap.height;
-  } catch (e) {
-    source = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error('unsupported image format'));
-      img.src = URL.createObjectURL(file);
-    });
-    sw = source.naturalWidth; sh = source.naturalHeight;
-  }
-  const scale = Math.min(1, maxDim / Math.max(sw, sh));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(sw * scale));
-  canvas.height = Math.max(1, Math.round(sh * scale));
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', quality);
-}
-
-retakeBtn.addEventListener('click', () => {
-  photoInput.value = '';
-  selectedImageDataUrl = null;
-  photoPreviewWrap.classList.remove('show');
-  ocrProgress.classList.remove('show');
-  ocrExtracted.classList.remove('show');
-});
-
-extractBtn.addEventListener('click', async () => {
-  if (!selectedImageDataUrl){ setStatus('Select a photo first.', true); return; }
-  if (typeof Tesseract === 'undefined'){
-    setStatus('OCR library failed to load — check your connection and reload.', true);
-    return;
-  }
-  // Check the reference table BEFORE running OCR — no point spending 10+ seconds
-  // reading the label if we have nothing to check the ingredients against.
-  if (!tableReady) await loadReferenceTable();
-  if (!tableLoaded) await loadReferenceTable();
-  if (!tableLoaded){ showTableUnavailable(); return; }
-
-  extractBtn.disabled = true;
-  ocrProgress.classList.add('show');
-  ocrExtracted.classList.remove('show');
-  ocrStage.textContent = 'Starting OCR…';
-  ocrFill.style.width = '0%';
-  ocrPct.textContent = '0%';
-
-  try{
-    const result = await Tesseract.recognize(selectedImageDataUrl, 'eng', {
-      logger: (m) => {
-        if (m.status){
-          ocrStage.textContent = m.status.replace(/_/g, ' ');
-        }
-        if (typeof m.progress === 'number'){
-          const pct = Math.round(m.progress * 100);
-          ocrFill.style.width = pct + '%';
-          ocrPct.textContent = pct + '%';
-        }
-      }
-    });
-
-    const rawText = result.data.text || '';
-    ocrExtracted.textContent = rawText.trim() || '(no text detected)';
-    ocrExtracted.classList.add('show');
-
-    const { ingredients, foundHeader } = extractIngredientsFromOCR(rawText);
-
-    renderIngredientsBlock({
-      name: 'Scanned label',
-      brand: foundHeader ? 'via photo OCR · found "INGREDIENTS:" label' : 'via photo OCR · no "INGREDIENTS:" label found, used full text',
-      imgUrl: selectedImageDataUrl,
-      ingredients,
-      emptyMessage: "Couldn't confidently parse an ingredient list from this photo. Try a closer, well-lit, flat shot of just the ingredients text."
-    });
-
-  }catch(err){
-    setStatus('OCR failed: ' + err.message, true);
-  }finally{
-    extractBtn.disabled = false;
-  }
-});
-
-// Find the "INGREDIENTS:" header and split what follows on commas — this is the actual
-// structure printed on packaging, so it's a more faithful parse than just splitting the
-// whole OCR blob. OCR frequently misreads letters in that header (E→A, I→1/L, etc. — the
-// literal example that prompted this: "INGRADIENTS"), so the header match is fuzzy on the
-// characters most commonly misread rather than requiring an exact "INGREDIENTS" string.
-// Letters allowed to vary between what's actually printed and what OCR reads back
-// (E/A and I/1/l are the most commonly confused). Whitespace is allowed BETWEEN every
-// letter too — packaging often prints this header in letter-spaced/tracked bold type,
-// and OCR frequently reads that back with visible gaps between characters, e.g.
-// "I N G R A D I E N T S :" — a regex requiring contiguous letters misses that entirely.
-const INGREDIENTS_HEADER_RE = /[il1]\s*n\s*g\s*r\s*[ea]\s*d\s*[il1]\s*e\s*n\s*t\s*s?\s*[:;\-.]?/i;
-
-// A handful of section headers that commonly follow the ingredient list on real labels —
-// used to cut off the capture before allergen/nutrition text gets pulled in as "ingredients".
-const STOP_SECTION_RE = /\b(contains|allergen|nutrition|manufactured|distributed|best before|best by|net wt|net weight|storage|directions|warning)\b/i;
-
-function extractIngredientsFromOCR(rawText){
-  const cleaned = rawText.replace(/\r/g, ' ').replace(/\n/g, ' ').replace(/[|_]/g, ' ').replace(/\s+/g, ' ').trim();
-
-  const headerMatch = cleaned.match(INGREDIENTS_HEADER_RE);
-  let body, foundHeader;
-  if (headerMatch){
-    body = cleaned.slice(headerMatch.index + headerMatch[0].length);
-    foundHeader = true;
-  } else {
-    // Header not found (OCR missed it entirely) — fall back to treating the whole
-    // extracted text as the ingredient list, since that's still often usable.
-    body = cleaned;
-    foundHeader = false;
-  }
-
-  const stopMatch = body.match(STOP_SECTION_RE);
-  if (stopMatch) body = body.slice(0, stopMatch.index);
-
-  const ingredients = splitOnTopLevelCommas(body)
-    .map(s => s.replace(/^[.\-–:\s]+|[.\-–:\s]+$/g, '').trim())
-    .filter(s => s.length > 1 && /[a-z]/i.test(s));
-
-  return { ingredients, foundHeader };
-}
-
-// Splits on commas, but not commas that fall inside parentheses — so "Vegetable Oil
-// (Palm, Sunflower)" stays as one ingredient instead of being torn into three fragments.
+// Splits an ingredient string on commas, but not commas inside parentheses — so
+// "Vegetable Oil (Palm, Sunflower)" stays one ingredient instead of three fragments.
 function splitOnTopLevelCommas(text){
   const result = [];
   let depth = 0, current = '';
