@@ -502,13 +502,19 @@ async function loadReferenceTable(){
 }
 
 // ---------- Scan counter ----------
-// Counts labels successfully classified on THIS device. Persisted in localStorage so
-// it survives reloads, but every access is guarded: private browsing, blocked storage,
-// and in-app webviews can make localStorage THROW on access rather than return null.
-// An unguarded error there would break the scan flow, so this degrades to an in-memory
-// count instead of failing.
+// Two tallies:
+//   • LOCAL  — labels classified on this device, in localStorage. Always works offline.
+//   • GLOBAL — total across everyone, from the Cloudflare Worker in counter-worker.js.
+//
+// The global counter is OPTIONAL and OFF until you paste your Worker URL below. With
+// it unset, or unreachable, the app silently shows the local count only — a counter is
+// a nice-to-have, and it must never be able to break a scan or a live demo.
+const COUNTER_API_URL = null;  // e.g. 'https://labellens-counter.YOUR-NAME.workers.dev'
+
+const COUNTER_TIMEOUT_MS = 4000;
 const SCAN_COUNT_KEY = 'labellens.scanCount';
 let scanCountMemory = 0;
+let globalScanCount = null;   // null = unknown/unavailable, so we just hide it
 
 function readScanCount(){
   try{
@@ -529,18 +535,59 @@ function writeScanCount(n){
   }
 }
 
+// Fetch the shared total. Failures are deliberately silent: the local count carries on.
+async function fetchGlobalCount(){
+  if (!COUNTER_API_URL) return;
+  try{
+    const res = await fetchWithTimeout(COUNTER_API_URL, COUNTER_TIMEOUT_MS);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (typeof data.count === 'number'){
+      globalScanCount = data.count;
+      renderScanCount();
+    }
+  }catch(e){
+    // offline, worker down, or CORS — global tally just stays hidden
+  }
+}
+
+// Report a scan to the shared counter. Fire-and-forget so a slow or dead worker never
+// delays showing the user their result.
+async function reportGlobalScan(){
+  if (!COUNTER_API_URL) return;
+  try{
+    const res = await fetchWithTimeout(COUNTER_API_URL, COUNTER_TIMEOUT_MS, { method: 'POST' });
+    if (!res.ok && res.status !== 429) return;
+    const data = await res.json();
+    if (typeof data.count === 'number'){
+      globalScanCount = data.count;
+      renderScanCount();
+    }
+  }catch(e){
+    // Increment lost — acceptable for a vanity total, and invisible to the user.
+  }
+}
+
 function incrementScanCount(){
   writeScanCount(readScanCount() + 1);
   renderScanCount();
+  reportGlobalScan();   // intentionally not awaited
 }
 
 function renderScanCount(){
   const el = document.getElementById('scanCount');
   if (!el) return;
-  const n = readScanCount();
-  el.innerHTML = n === 0
-    ? 'No labels scanned yet on this device'
-    : '<b>' + n.toLocaleString() + '</b> label' + (n === 1 ? '' : 's') + ' scanned on this device';
+  const mine = readScanCount();
+  const minePart = mine === 0
+    ? 'None scanned yet on this device'
+    : '<b>' + mine.toLocaleString() + '</b> scanned on this device';
+
+  if (globalScanCount === null){
+    el.innerHTML = minePart;
+  }else{
+    el.innerHTML = '<b>' + globalScanCount.toLocaleString() + '</b> label' +
+      (globalScanCount === 1 ? '' : 's') + ' scanned by everyone · ' + minePart;
+  }
 }
 
 function updateTableSourceNote(){
@@ -572,6 +619,7 @@ function showTableUnavailable(){
 
 loadReferenceTable();
 renderScanCount();
+fetchGlobalCount();   // no await — the local count shows immediately either way
 
 function classify(ingredientName){
   const n = ingredientName.toLowerCase();
@@ -626,11 +674,11 @@ const OPEN_FACTS_SOURCES = [
 ];
 const LOOKUP_TIMEOUT_MS = 6000;
 
-async function fetchWithTimeout(url, timeoutMs){
+async function fetchWithTimeout(url, timeoutMs, options){
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try{
-    return await fetch(url, { signal: controller.signal });
+    return await fetch(url, Object.assign({}, options, { signal: controller.signal }));
   } finally {
     clearTimeout(timer);
   }
