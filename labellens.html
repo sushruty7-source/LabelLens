@@ -311,6 +311,13 @@
     line-height:1.6; padding:0 2px;
   }
 
+  .scan-count{
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--line);
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    letter-spacing:0.04em;
+  }
+  .scan-count b{ color:var(--green); font-weight:600; font-size:14px; }
+
   footer{
     margin-top:30px; padding:16px 18px 0; text-align:center;
     font-family:var(--mono); font-size:10px; color:var(--gray);
@@ -435,6 +442,7 @@
     DATA: Open Food Facts · Open Beauty Facts · IARC Monographs (WHO) · prototype build<br>
     <span style="opacity:.8">On iPhone: Share → Add to Home Screen. On Android: menu → Install app.</span><br>
     <span id="tableSourceNote" style="opacity:.8">Reference table: loading…</span>
+    <div class="scan-count" id="scanCount"></div>
   </footer>
 </div>
 
@@ -493,6 +501,48 @@ async function loadReferenceTable(){
   updateTableSourceNote();
 }
 
+// ---------- Scan counter ----------
+// Counts labels successfully classified on THIS device. Persisted in localStorage so
+// it survives reloads, but every access is guarded: private browsing, blocked storage,
+// and in-app webviews can make localStorage THROW on access rather than return null.
+// An unguarded error there would break the scan flow, so this degrades to an in-memory
+// count instead of failing.
+const SCAN_COUNT_KEY = 'labellens.scanCount';
+let scanCountMemory = 0;
+
+function readScanCount(){
+  try{
+    const v = window.localStorage.getItem(SCAN_COUNT_KEY);
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }catch(e){
+    return scanCountMemory;
+  }
+}
+
+function writeScanCount(n){
+  scanCountMemory = n;
+  try{
+    window.localStorage.setItem(SCAN_COUNT_KEY, String(n));
+  }catch(e){
+    // storage unavailable — the in-memory value still keeps this session accurate
+  }
+}
+
+function incrementScanCount(){
+  writeScanCount(readScanCount() + 1);
+  renderScanCount();
+}
+
+function renderScanCount(){
+  const el = document.getElementById('scanCount');
+  if (!el) return;
+  const n = readScanCount();
+  el.innerHTML = n === 0
+    ? 'No labels scanned yet on this device'
+    : '<b>' + n.toLocaleString() + '</b> label' + (n === 1 ? '' : 's') + ' scanned on this device';
+}
+
 function updateTableSourceNote(){
   const el = document.getElementById('tableSourceNote');
   if (!el) return;
@@ -521,6 +571,7 @@ function showTableUnavailable(){
 }
 
 loadReferenceTable();
+renderScanCount();
 
 function classify(ingredientName){
   const n = ingredientName.toLowerCase();
@@ -742,6 +793,10 @@ function renderIngredientsBlock({ name, brand, imgUrl, ingredients, emptyMessage
     </div>`;
   }).join('');
 
+  // Counted here, at the end of the SUCCESS path only — a lookup that found a
+  // product but no ingredient list never reaches this point, so the tally
+  // reflects labels actually classified rather than buttons pressed.
+  incrementScanCount();
   productEl.classList.add('show');
 }
 
