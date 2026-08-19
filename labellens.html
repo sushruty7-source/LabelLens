@@ -6,10 +6,10 @@
 <title>LabelLens — Ingredient Scanner</title>
 
 <!-- Mobile / "Add to Home Screen" support -->
-<meta name="theme-color" content="#F6F7F5">
+<meta name="theme-color" content="#0d1512">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LabelLens">
 <link rel="manifest" href="./manifest.json">
 <link rel="icon" href="./icon-32.png" sizes="32x32">
@@ -17,266 +17,259 @@
 <link rel="apple-touch-icon" href="./icon-180.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700;1,400&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <!-- BarcodeDetector polyfill, backed by ZXing-C++ WebAssembly. iOS/WebKit has never
      implemented the native Barcode Detection API, so on iPhone this polyfill IS the
      scanner. On Android Chrome the native implementation is used instead. -->
 <script src="https://cdn.jsdelivr.net/npm/barcode-detector@3/dist/iife/index.min.js"></script>
 <style>
-  /* ============================================================
-     LabelLens — "Monograph"
-     Reference: IARC monographs, pharmacopeia, regulatory documents.
-
-     Palette rationale: IARC groups are a CERTAINTY gradient (how strong is
-     the evidence), not a danger scale (how risky is this product). A red/amber/
-     green traffic light misstates that. So the scale runs from deep oxide red
-     through ochre to slate — degrees of established evidence — with unknown
-     rendered in a cool grey-blue that reads as "unmeasured", not "safe".
-     ============================================================ */
   :root{
-    /* surfaces */
-    --paper:      #F6F7F5;   /* cool paper, not warm cream */
-    --card:       #FFFFFF;
-    --card-alt:   #EFF1EE;
-    --rule:       #D6DBD7;
-    --rule-soft:  #E6E9E6;
-
-    /* ink */
-    --ink:        #14181C;
-    --ink-mid:    #4A545C;
-    --ink-soft:   #78838B;
-
-    /* institutional accent — used for structure, never for risk */
-    --accent:     #1F3A5F;
-
-    /* evidence gradient: established → unmeasured */
-    --ev-1:       #8C2F1F;   /* Group 1  — established */
-    --ev-2a:      #B0562A;   /* Group 2A — probable */
-    --ev-2b:      #C08A34;   /* Group 2B — possible */
-    --ev-3:       #6E7A80;   /* Group 3  — reviewed, inconclusive */
-    --ev-ne:      #8A93A8;   /* not evaluated — unmeasured */
-    --ev-clear:   #2F6B4F;   /* specifically cleared */
-
-    --laser:      #C0392B;
-
-    --serif:  'Spectral', Georgia, serif;
-    --sans:   'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    --mono:   'IBM Plex Mono', ui-monospace, monospace;
+    --ink: #0d1512;
+    --panel: #131e19;
+    --panel-2: #182720;
+    --line: #24362d;
+    --text: #e9f1ec;
+    --text-dim: #93a89c;
+    --laser: #ff3b30;
+    --amber: #f5a623;
+    --green: #3ecf8e;
+    --red: #ff5a4e;
+    --gray: #6b7d73;
+    --mono: 'IBM Plex Mono', monospace;
+    --display: 'Space Grotesk', sans-serif;
   }
-
   *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
   html{ -webkit-text-size-adjust: 100%; }
   body{
     margin:0;
-    background: var(--paper);
-    color: var(--ink);
-    font-family: var(--sans);
-    font-size:15px;
-    line-height:1.55;
+    background: var(--ink);
+    color: var(--text);
+    font-family: var(--display);
     padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(60px + env(safe-area-inset-bottom)) env(safe-area-inset-left);
-    min-height:100vh; min-height:100dvh;
+    min-height:100vh;
+    min-height: 100dvh;
     touch-action: manipulation;
     overscroll-behavior-y: contain;
   }
-  .wrap{max-width:560px; margin:0 auto; padding:0 18px;}
+  .wrap{max-width:520px; margin:0 auto; padding:0 18px;}
 
-  /* ---------- HEADER ---------- */
+  /* HEADER */
   header{
-    padding: 30px 18px 22px;
-    border-bottom: 2px solid var(--ink);
-    display:flex; align-items:flex-end; gap:14px;
+    padding: 28px 18px 20px;
+    border-bottom: 1px solid var(--line);
+    display:flex; align-items:center; gap:12px;
   }
-  .logo-mark{ width:34px; height:34px; flex-shrink:0; }
+  .logo-mark{
+    width:34px; height:34px; flex-shrink:0; position:relative;
+  }
   .logo-mark svg{width:100%;height:100%;display:block;}
   h1{
-    font-family: var(--serif);
-    font-size: 30px; margin:0; letter-spacing:-0.015em; font-weight:700;
-    line-height:1;
+    font-size: 20px; margin:0; letter-spacing:-0.02em; font-weight:700;
   }
-  header p{
-    margin:6px 0 0; font-family:var(--mono); font-size:10px;
-    color:var(--ink-soft); letter-spacing:0.1em; text-transform:uppercase;
-  }
+  header p{margin:2px 0 0; font-family:var(--mono); font-size:11px; color:var(--text-dim); letter-spacing:0.04em;}
 
-  /* ---------- BUTTONS ---------- */
   button{
-    font-family: var(--sans); font-weight:600; font-size:14px;
-    border-radius:3px; border:1px solid var(--ink); cursor:pointer;
-    padding:12px 16px; min-height:44px; transition: all .14s ease;
+    font-family: var(--display); font-weight:600; font-size:14px;
+    border-radius:8px; border:1px solid var(--line); cursor:pointer;
+    padding:12px 14px; min-height:44px; transition: all .15s ease; letter-spacing:0.01em;
     -webkit-appearance:none; appearance:none;
   }
-  .btn-primary{ background: var(--ink); color:var(--paper); flex:1; }
-  .btn-primary:hover{ background: var(--accent); border-color:var(--accent); }
-  .btn-primary:disabled{ opacity:.4; cursor:default; }
-  .btn-ghost{ background:transparent; color:var(--ink); flex:1; }
-  .btn-ghost:hover{ background:var(--card-alt); }
-  button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  .btn-primary{
+    background: var(--green); color:#062015; border-color:var(--green); flex:1;
+  }
+  .btn-primary:hover{filter:brightness(1.08);}
+  .btn-primary:disabled{opacity:.5; cursor:default;}
+  .btn-ghost{
+    background:transparent; color:var(--text); flex:1;
+  }
+  .btn-ghost:hover{background:var(--panel-2);}
 
-  /* ---------- SCANNER ---------- */
+  /* SCANNER */
   .scanner-card{
-    margin:22px 18px 0; background: var(--card);
-    border: 1px solid var(--rule); border-radius:4px; overflow:hidden;
+    margin:20px 18px 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow:hidden;
   }
   .viewport{
-    position:relative; aspect-ratio: 4/3; background:#1A1D1F;
-    display:flex; align-items:center; justify-content:center; overflow:hidden;
+    position:relative;
+    aspect-ratio: 4/3;
+    background: #060a08;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
   }
   #reader{width:100%; height:100%; position:relative;}
-  /* 'contain' not 'cover' — cover crops the feed, so the user would aim at a
-     barcode sitting outside the frame actually being decoded. */
-  #reader video{object-fit:contain; width:100%; height:100%; display:block; background:#1A1D1F;}
+  /* 'contain', not 'cover' — cover CROPS the feed, so the user would aim at a barcode
+     that sits outside the frame actually being decoded. */
+  #reader video{object-fit:contain; width:100%; height:100%; display:block; background:#060a08;}
   .viewport-idle{
-    text-align:center; color:#9BA5AB; font-family:var(--mono); font-size:11.5px;
-    padding:20px; line-height:1.7; position:absolute; left:0; right:0;
+    text-align:center; color:var(--text-dim); font-family:var(--mono); font-size:12px;
+    padding:20px; line-height:1.6; position:absolute; left:0; right:0;
   }
   .laser-line{
-    position:absolute; left:8%; right:8%; height:1.5px;
-    background: var(--laser); box-shadow:0 0 6px 1px rgba(192,57,43,.7);
-    top:50%; animation: sweep 2.4s ease-in-out infinite;
-    display:none; pointer-events:none;
+    position:absolute; left:8%; right:8%; height:2px;
+    background: linear-gradient(90deg, transparent, var(--laser), transparent);
+    box-shadow: 0 0 8px 1px var(--laser);
+    top:50%;
+    animation: sweep 2.2s ease-in-out infinite;
+    display:none;
+    pointer-events:none;
   }
   .scanning .laser-line{display:block;}
   .scanning .viewport-idle{display:none;}
-  @keyframes sweep{ 0%,100%{top:32%;} 50%{top:68%;} }
-  @media (prefers-reduced-motion: reduce){
-    .laser-line{ animation:none; top:50%; }
+  @keyframes sweep{
+    0%,100%{ top:32%; }
+    50%{ top:68%; }
   }
-  .corner{ position:absolute; width:20px; height:20px; border-color:#F6F7F5; opacity:.9; pointer-events:none; }
-  .corner.tl{top:29%;left:8%;border-top:1.5px solid;border-left:1.5px solid;}
-  .corner.tr{top:29%;right:8%;border-top:1.5px solid;border-right:1.5px solid;}
-  .corner.bl{bottom:29%;left:8%;border-bottom:1.5px solid;border-left:1.5px solid;}
-  .corner.br{bottom:29%;right:8%;border-bottom:1.5px solid;border-right:1.5px solid;}
+  /* Corner guides outline a WIDE, SHORT target — the shape of a retail barcode. */
+  .corner{
+    position:absolute; width:22px; height:22px; border-color: var(--green);
+    opacity:.85; pointer-events:none;
+  }
+  .corner.tl{top:29%;left:8%;border-top:2px solid;border-left:2px solid;border-radius:4px 0 0 0;}
+  .corner.tr{top:29%;right:8%;border-top:2px solid;border-right:2px solid;border-radius:0 4px 0 0;}
+  .corner.bl{bottom:29%;left:8%;border-bottom:2px solid;border-left:2px solid;border-radius:0 0 0 4px;}
+  .corner.br{bottom:29%;right:8%;border-bottom:2px solid;border-right:2px solid;border-radius:0 0 4px 0;}
 
-  .scanner-controls{ padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--rule); }
+  .scanner-controls{
+    padding:14px 16px; display:flex; gap:10px; border-top:1px solid var(--line);
+  }
 
-  .rescan{ display:none; border-top:1px solid var(--rule); padding:14px 16px; background:var(--card-alt); }
+  /* Rescan prompt — shown after a failed read */
+  .rescan{ display:none; border-top:1px solid var(--line); padding:14px 16px; }
   .rescan.show{ display:block; }
-  .rescan-msg{ font-weight:600; font-size:13.5px; color:var(--ev-2a); margin-bottom:8px; }
-  .rescan-tips{ margin:0 0 12px; padding-left:18px; font-size:13px; color:var(--ink-mid); line-height:1.7; }
+  .rescan-msg{
+    font-family:var(--mono); font-size:11px; color:var(--amber);
+    letter-spacing:0.03em; margin-bottom:10px;
+  }
+  .rescan-tips{
+    margin:0 0 12px; padding-left:16px;
+    font-family:var(--mono); font-size:10.5px; color:var(--text-dim); line-height:1.75;
+  }
 
-  /* ---------- MANUAL ENTRY ---------- */
   .manual{
-    margin:14px 18px 0; background:var(--card); border:1px solid var(--rule);
-    border-radius:4px; padding:16px;
+    margin:14px 18px 0; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:14px 16px;
   }
   .manual label{
-    font-family:var(--mono); font-size:10px; text-transform:uppercase;
-    letter-spacing:0.1em; color:var(--ink-soft); display:block; margin-bottom:9px;
+    font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--text-dim); display:block; margin-bottom:8px;
   }
   .manual-row{display:flex; gap:8px;}
   .manual-row input{
-    flex:1; background:var(--paper); border:1px solid var(--rule); color:var(--ink);
-    font-family:var(--mono); font-size:16px; letter-spacing:0.06em; border-radius:3px;
-    padding:12px; min-height:44px; outline:none; -webkit-appearance:none; appearance:none;
+    flex:1; background:#0a1310; border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:16px; letter-spacing:0.05em; border-radius:8px;
+    padding:12px 12px; min-height:44px; outline:none; -webkit-appearance:none; appearance:none;
   }
-  .manual-row input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(31,58,95,.1);}
-  .manual-row button{white-space:nowrap; flex:0 0 auto;}
+  .manual-row input:focus{border-color:var(--green);}
+  .manual-row button{white-space:nowrap;}
 
-  /* ---------- STATUS ---------- */
+
+
+  /* STATUS */
   .status{
-    margin:14px 18px 0; font-family:var(--mono); font-size:12px; color:var(--ink-mid);
-    display:none; align-items:center; gap:9px; padding:10px 14px;
-    background:var(--card-alt); border-left:2px solid var(--accent); border-radius:0 3px 3px 0;
+    margin:14px 18px 0; font-family:var(--mono); font-size:12px; color:var(--text-dim);
+    display:none; align-items:center; gap:8px;
   }
   .status.show{display:flex;}
-  .dot{width:6px;height:6px;border-radius:50%; background:var(--accent); animation:pulse 1.1s infinite; flex-shrink:0;}
-  @keyframes pulse{50%{opacity:.25;}}
-  .status.error{ border-left-color:var(--ev-1); color:var(--ev-1); }
-  .status.error .dot{background:var(--ev-1); animation:none;}
+  .dot{width:6px;height:6px;border-radius:50%; background:var(--amber); animation:pulse 1s infinite;}
+  @keyframes pulse{50%{opacity:.3;}}
+  .status.error .dot{background:var(--red); animation:none;}
+  .status.error{color:var(--red);}
 
-  /* ---------- PRODUCT ---------- */
-  .product{ margin:20px 18px 0; display:none; }
-  .product.show{ display:block; }
+  /* PRODUCT CARD */
+  .product{
+    margin:18px 18px 0; display:none;
+  }
+  .product.show{display:block;}
   .product-head{
     display:flex; gap:14px; align-items:center; padding:16px;
-    background:var(--card); border:1px solid var(--rule); border-radius:4px 4px 0 0; border-bottom:none;
+    background:var(--panel); border:1px solid var(--line); border-radius:14px 14px 0 0;
+    border-bottom:none;
   }
-  .product-head img{ width:54px;height:54px;object-fit:contain;border-radius:3px;background:#fff;flex-shrink:0;border:1px solid var(--rule-soft); }
-  .ph-fallback{
-    width:54px;height:54px;border-radius:3px;background:var(--card-alt);
+  .product-head img{
+    width:56px; height:56px; object-fit:contain; border-radius:8px; background:#fff;
+    flex-shrink:0;
+  }
+  .product-head .ph-fallback{
+    width:56px;height:56px;border-radius:8px;background:var(--panel-2);
     display:flex;align-items:center;justify-content:center;font-family:var(--mono);
-    font-size:9px;color:var(--ink-soft);text-align:center;flex-shrink:0;
+    font-size:10px;color:var(--text-dim);text-align:center;flex-shrink:0;
   }
-  .product-name{ font-family:var(--serif); font-weight:700; font-size:19px; line-height:1.25; }
-  .product-brand{ font-family:var(--mono); font-size:10.5px; color:var(--ink-soft); margin-top:4px; }
+  .product-name{font-weight:700; font-size:16px; line-height:1.3;}
+  .product-brand{font-family:var(--mono); font-size:11px; color:var(--text-dim); margin-top:3px;}
 
-  /* Evidence tally */
-  .risk-summary{ display:flex; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); background:var(--card); }
-  .risk-summary div{ flex:1; text-align:center; padding:13px 6px; border-right:1px solid var(--rule-soft); }
+  .risk-summary{
+    display:flex; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    background:var(--panel);
+  }
+  .risk-summary div{
+    flex:1; text-align:center; padding:12px 6px; border-right:1px solid var(--line);
+  }
   .risk-summary div:last-child{border-right:none;}
-  .risk-summary .num{ font-family:var(--serif); font-size:22px; font-weight:700; display:block; line-height:1; }
-  .risk-summary .lbl{ font-family:var(--mono); font-size:8.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-soft); display:block; margin-top:5px; }
+  .risk-summary .num{font-family:var(--mono); font-size:18px; font-weight:600; display:block;}
+  .risk-summary .lbl{font-family:var(--mono); font-size:9px; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-dim); display:block; margin-top:2px;}
 
   .ingredient-list{
-    background:var(--card); border:1px solid var(--rule); border-top:none;
-    border-radius:0 0 4px 4px;
+    background: var(--panel); border:1px solid var(--line); border-top:none;
+    border-radius:0 0 14px 14px; padding:6px 0 4px;
   }
-  .ing-row{ display:flex; align-items:flex-start; gap:12px; padding:13px 16px; border-bottom:1px solid var(--rule-soft); }
+  .ing-row{
+    display:flex; align-items:flex-start; gap:10px; padding:10px 16px;
+    border-bottom:1px solid var(--line);
+  }
   .ing-row:last-child{border-bottom:none;}
   .ing-badge{
-    flex-shrink:0; width:42px; text-align:center; font-family:var(--mono); font-size:10px;
-    font-weight:600; padding:4px 3px; border-radius:2px; letter-spacing:0.02em; margin-top:2px;
-    color:#fff;
+    flex-shrink:0; width:44px; text-align:center; font-family:var(--mono); font-size:10px;
+    font-weight:600; padding:3px 4px; border-radius:5px; letter-spacing:0.02em; margin-top:1px;
   }
-  .ing-name{ font-size:14.5px; font-weight:600; line-height:1.35; }
-  .ing-matched{ font-family:var(--mono); font-size:10px; color:var(--ink-soft); margin-top:3px; }
-  .ing-note{ font-size:13px; color:var(--ink-mid); margin-top:5px; line-height:1.5; }
-  .ing-found{ font-family:var(--serif); font-style:italic; font-size:12.5px; color:var(--ink-soft); margin-top:5px; line-height:1.45; }
+  .ing-name{font-size:13.5px; line-height:1.4;}
+  .ing-note{font-family:var(--mono); font-size:10.5px; color:var(--text-dim); margin-top:2px; line-height:1.4;}
+  .ing-matched{
+    font-family:var(--mono); font-size:9.5px; color:var(--gray); margin-top:2px;
+    letter-spacing:0.03em;
+  }
+  .ing-found{
+    font-family:var(--mono); font-size:9.5px; color:var(--gray); margin-top:4px;
+    line-height:1.5; font-style:italic;
+  }
 
-  .g1{background:var(--ev-1);}
-  .g2a{background:var(--ev-2a);}
-  .g2b{background:var(--ev-2b);}
-  .g3{background:var(--ev-3);}
-  .gne{background:var(--ev-ne);}
-  .gclear{background:var(--ev-clear);}
-  .gnone{background:transparent; color:var(--ink-soft); border:1px solid var(--rule);}
+  .g1{background:rgba(255,90,78,.16); color:var(--red);}
+  .g2a{background:rgba(255,90,78,.10); color:#ff8f7f;}
+  .g2b{background:rgba(245,166,35,.15); color:var(--amber);}
+  .g3{background:rgba(107,125,115,.18); color:var(--text-dim);}
+  .gne{background:rgba(107,140,180,.15); color:#8fb3d9;}
+  .gclear{background:rgba(62,207,142,.16); color:var(--green);}
+  .gnone{background:rgba(62,207,142,.1); color:var(--green);}
 
-  /* ---------- LEGEND: the signature element ----------
-     Rendered as a continuous evidence spectrum rather than discrete swatches,
-     because that is what the IARC groups actually are — a gradient of how
-     established the evidence is, not steps on a danger meter. */
   .legend{
-    margin:22px 18px 0; padding:16px; background:var(--card);
-    border:1px solid var(--rule); border-radius:4px;
+    margin:16px 18px 0; padding:12px 14px; background:var(--panel-2);
+    border:1px solid var(--line); border-radius:12px;
+    font-family:var(--mono); font-size:9px; color:var(--text-dim); line-height:1.75;
   }
-  .legend-title{
-    font-family:var(--mono); font-size:9.5px; text-transform:uppercase;
-    letter-spacing:0.12em; color:var(--ink-soft); margin-bottom:12px;
-  }
-  .spectrum{
-    height:5px; border-radius:2px; margin-bottom:4px;
-    background: linear-gradient(90deg,
-      var(--ev-1) 0%, var(--ev-2a) 26%, var(--ev-2b) 48%, var(--ev-3) 70%, var(--ev-ne) 100%);
-  }
-  .spectrum-ends{
-    display:flex; justify-content:space-between; font-family:var(--mono);
-    font-size:8.5px; letter-spacing:0.08em; text-transform:uppercase;
-    color:var(--ink-soft); margin-bottom:14px;
-  }
-  .legend-row{ display:flex; align-items:baseline; gap:9px; font-size:12.5px; color:var(--ink-mid); padding:4px 0; line-height:1.45; }
-  .legend-row b{ color:var(--ink); font-weight:600; flex-shrink:0; }
-  .legend-swatch{ width:9px;height:9px;border-radius:2px; flex-shrink:0; transform:translateY(1px); }
+  .legend b{color:var(--text); font-weight:600;}
+  .legend-row{display:flex; align-items:center; gap:7px;}
+  .legend-swatch{width:7px;height:7px;border-radius:2px; flex-shrink:0;}
 
   .disclaimer{
-    margin:16px 18px 0; font-family:var(--serif); font-size:12.5px; color:var(--ink-soft);
-    line-height:1.6; padding:14px 16px; border-left:2px solid var(--rule); background:var(--card-alt);
-    border-radius:0 3px 3px 0;
+    margin:14px 18px 0; font-family:var(--mono); font-size:10px; color:var(--gray);
+    line-height:1.6; padding:0 2px;
   }
-  .disclaimer i{ font-style:normal; font-weight:600; color:var(--ink-mid); }
+
+  .scan-count{
+    margin-top:12px; padding-top:12px; border-top:1px solid var(--line);
+    font-family:var(--mono); font-size:11px; color:var(--text-dim);
+    letter-spacing:0.04em;
+  }
+  .scan-count b{ color:var(--green); font-weight:600; font-size:14px; }
+  .count-global{ display:block; }
+  .count-mine{ display:block; margin-top:4px; opacity:.65; font-size:10px; }
 
   footer{
-    margin-top:32px; padding:18px 18px 0; text-align:center;
-    font-family:var(--mono); font-size:9.5px; color:var(--ink-soft); line-height:1.8;
-    border-top:1px solid var(--rule);
+    margin-top:30px; padding:16px 18px 0; text-align:center;
+    font-family:var(--mono); font-size:10px; color:var(--gray);
   }
-  .scan-count{
-    margin-top:14px; padding-top:14px; border-top:1px solid var(--rule-soft);
-    font-family:var(--sans); font-size:12px; color:var(--ink-mid);
-  }
-  .scan-count b{ font-family:var(--serif); color:var(--ink); font-weight:700; font-size:17px; }
-  .count-global{ display:block; }
-  .count-mine{ display:block; margin-top:3px; font-size:11px; color:var(--ink-soft); }
 </style>
 </head>
 <body>
@@ -285,13 +278,13 @@
   <header>
     <div class="logo-mark">
       <svg viewBox="0 0 34 34" fill="none">
-        <rect x="1" y="6" width="3" height="22" fill="#14181C"/>
-        <rect x="6" y="6" width="1.5" height="22" fill="#14181C"/>
-        <rect x="9.5" y="6" width="3" height="22" fill="#14181C"/>
-        <rect x="14.5" y="6" width="1.5" height="22" fill="#1F3A5F"/>
-        <rect x="18" y="6" width="4" height="22" fill="#1F3A5F"/>
-        <rect x="24" y="6" width="1.5" height="22" fill="#14181C"/>
-        <rect x="27.5" y="6" width="3" height="22" fill="#14181C"/>
+        <rect x="1" y="6" width="3" height="22" fill="#3ecf8e"/>
+        <rect x="6" y="6" width="1.5" height="22" fill="#3ecf8e"/>
+        <rect x="9.5" y="6" width="3" height="22" fill="#3ecf8e"/>
+        <rect x="14.5" y="6" width="1.5" height="22" fill="#e9f1ec"/>
+        <rect x="18" y="6" width="4" height="22" fill="#e9f1ec"/>
+        <rect x="24" y="6" width="1.5" height="22" fill="#3ecf8e"/>
+        <rect x="27.5" y="6" width="3" height="22" fill="#3ecf8e"/>
       </svg>
     </div>
     <div>
@@ -350,15 +343,13 @@
   </div>
 
   <div class="legend">
-    <div class="legend-title">Evidence scale — IARC classification</div>
-    <div class="spectrum"></div>
-    <div class="spectrum-ends"><span>Established</span><span>Unmeasured</span></div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--ev-1)"></span><b>Group 1</b> Carcinogenic to humans</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--ev-2a)"></span><b>Group 2A</b> Probably carcinogenic</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--ev-2b)"></span><b>Group 2B</b> Possibly carcinogenic</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--ev-3)"></span><b>Group 3</b> IARC reviewed it, evidence insufficient</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--ev-ne)"></span><b>N/A</b> Not evaluated by IARC — unknown, not safe</div>
-    <div class="legend-row"><span class="legend-swatch" style="background:var(--ev-clear)"></span><b>OK</b> Specifically studied and cleared</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--red)"></span><b>Group 1</b> — carcinogenic to humans (IARC)</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:#ff8f7f"></span><b>Group 2A</b> — probably carcinogenic</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--amber)"></span><b>Group 2B</b> — possibly carcinogenic</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--gray)"></span><b>Group 3</b> — IARC reviewed it, evidence insufficient</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:#8fb3d9"></span><b>N/A</b> — IARC has not evaluated this substance at all</div>
+    <div class="legend-row"><span class="legend-swatch" style="background:var(--green)"></span><b>OK</b> — specifically studied and cleared by regulators</div>
+    <div class="legend-row" style="opacity:.7"><span class="legend-swatch" style="background:rgba(62,207,142,.4)"></span>No badge shown — ingredient isn't on this prototype's reference list yet</div>
   </div>
 
   <div class="disclaimer">
@@ -593,7 +584,7 @@ function updateTableSourceNote(){
     el.style.color = '';
   } else {
     el.textContent = 'Reference table FAILED to load — classification is disabled. See console.';
-    el.style.color = 'var(--ev-1)';
+    el.style.color = 'var(--red)';
   }
 }
 
@@ -789,16 +780,16 @@ function renderIngredientsBlock({ name, brand, imgUrl, ingredients, emptyMessage
   classified.forEach(c => { if (c.hit) counts[c.hit.group]++; });
 
   document.getElementById('riskSummary').innerHTML = `
-    <div><span class="num" style="color:var(--ev-1)">${counts["1"]}</span><span class="lbl">Group 1</span></div>
-    <div><span class="num" style="color:var(--ev-2a)">${counts["2A"]}</span><span class="lbl">Group 2A</span></div>
-    <div><span class="num" style="color:var(--ev-2b)">${counts["2B"]}</span><span class="lbl">Group 2B</span></div>
-    <div><span class="num" style="color:var(--ev-3)">${counts["3"]}</span><span class="lbl">Group 3</span></div>
+    <div><span class="num" style="color:var(--red)">${counts["1"]}</span><span class="lbl">Group 1</span></div>
+    <div><span class="num" style="color:#ff8f7f">${counts["2A"]}</span><span class="lbl">Group 2A</span></div>
+    <div><span class="num" style="color:var(--amber)">${counts["2B"]}</span><span class="lbl">Group 2B</span></div>
+    <div><span class="num" style="color:var(--gray)">${counts["3"]}</span><span class="lbl">Group 3</span></div>
   `;
 
   document.getElementById('ingredientList').innerHTML = classified.map(c => {
     const label = c.hit ? groupLabel[c.hit.group] : '—';
     const cls = c.hit ? badgeClass(c.hit.group) : 'gnone';
-    const note = c.hit ? c.hit.note : 'Not on the reference list checked here — which means unknown, not safe.';
+    const note = c.hit ? c.hit.note : 'Not on the reference list checked here.';
     // Show WHICH table entry matched when its name differs from the label text, so a
     // classification is explainable rather than appearing out of nowhere.
     const matchedAs = (c.hit && c.hit.name && c.hit.name.toLowerCase() !== c.ing.toLowerCase())
